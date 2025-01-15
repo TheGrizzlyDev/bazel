@@ -64,6 +64,7 @@ final class Eval {
   static Object execFunctionBody(StarlarkThread.Frame fr, List<Statement> statements)
       throws EvalException, InterruptedException {
     fr.thread.checkInterrupt();
+    System.out.printf("Statements: %s%n", statements);
     execStatements(fr, statements, /*indented=*/ false);
     return fr.result;
   }

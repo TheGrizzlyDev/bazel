@@ -28,6 +28,7 @@ java_library(
         "HasBinary.java",
         "ImmutableSingletonStarlarkList.java",
         "ImmutableStarlarkList.java",
+        "Jit.java",
         "JNI.java",
         "LazyImmutableStarlarkList.java",
         "MethodDescriptor.java",
@@ -72,6 +73,7 @@ java_library(
         "//third_party:flogger",
         "//third_party:guava",
         "//third_party:jsr305",
+        "//third_party:asm",
     ],
 )
 

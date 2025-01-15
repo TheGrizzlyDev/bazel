@@ -16,6 +16,10 @@ package net.starlark.java.eval;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -222,7 +226,19 @@ public final class StarlarkFunction implements StarlarkCallable {
 
     spillIndicatedLocalsToCells(fr);
 
-    return Eval.execFunctionBody(fr, rfn.getBody());
+    try {
+      Class<?> jitClass = Jit.compile(this);
+      Constructor<?> constructor = jitClass.getConstructor();
+      Object jitMethodInstance = constructor.newInstance();
+      Method call = jitClass.getMethod("call", Frame.class);
+      Object result = call.invoke(jitMethodInstance, fr);
+      return result;
+    } catch (ClassNotFoundException | NoSuchMethodException | InvocationTargetException | IllegalAccessException |
+             InstantiationException e) {
+      throw new RuntimeException(e);
+    }
+
+//    return Eval.execFunctionBody(fr, rfn.getBody());
   }
 
   private void checkRecursive(StarlarkThread thread) throws EvalException {
