@@ -74,6 +74,10 @@ java_library(
         "//third_party:guava",
         "//third_party:jsr305",
         "//third_party:asm",
+        "//third_party:asm-util",
+        "//third_party:asm-tree",
+        "//third_party:asm-commons",
+        "//third_party:asm-analysis",
     ],
 )
 

@@ -226,17 +226,8 @@ public final class StarlarkFunction implements StarlarkCallable {
 
     spillIndicatedLocalsToCells(fr);
 
-    try {
-      Class<?> jitClass = Jit.compile(this);
-      Constructor<?> constructor = jitClass.getConstructor();
-      Object jitMethodInstance = constructor.newInstance();
-      Method call = jitClass.getMethod("call", Frame.class);
-      Object result = call.invoke(jitMethodInstance, fr);
-      return result;
-    } catch (ClassNotFoundException | NoSuchMethodException | InvocationTargetException | IllegalAccessException |
-             InstantiationException e) {
-      throw new RuntimeException(e);
-    }
+    System.out.printf("JIT '%s'%n", getName());
+    return Jit.compile(this).apply(fr);
 
 //    return Eval.execFunctionBody(fr, rfn.getBody());
   }

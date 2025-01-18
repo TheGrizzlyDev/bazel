@@ -122,7 +122,7 @@ public final class StarlarkThread {
   }
 
   /** A Frame records information about an active function call. */
-  static final class Frame implements Debug.Frame {
+  public static final class Frame implements Debug.Frame {
     final StarlarkThread thread;
     final StarlarkCallable fn; // the called function
 
