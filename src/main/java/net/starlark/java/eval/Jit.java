@@ -20,19 +20,6 @@ import java.util.function.Function;
 import static org.objectweb.asm.Opcodes.*;
 
 final class Jit {
-  public enum RuntimeType {
-    INT,
-    LONG,
-    FLOAT,
-    DOUBLE,
-    OBJ;
-
-    public void visitRuntimeType(MethodVisitor methodVisitor) {
-      methodVisitor.visitLdcInsn(this.ordinal());
-    }
-  }
-
-
   private static final Type IMMUTABLE_MAP_TYPE = Type.getType(ImmutableMap.class);
   private static final Type OBJECT_TYPE = Type.getType(Object.class);
   private static final Type STARLARK_TYPE = Type.getType(Starlark.class);
@@ -41,6 +28,8 @@ final class Jit {
   private static final Type STARLARK_THREAD_TYPE = Type.getType(StarlarkThread.class);
   private static final Type LIST_TYPE = Type.getType(List.class);
   private static final Type MAP_TYPE = Type.getType(Map.class);
+  private static final Type INTEGER_TYPE = Type.getType(Integer.class);
+  private static final Type RUNTIME_UTILS_TYPE = Type.getType(RuntimeUtils.class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -75,7 +64,10 @@ final class Jit {
     for (Statement statement : statements) {
       switch (statement.kind()) {
         case RETURN -> {
-          visitReturn(methodVisitor, ((ReturnStatement) statement));
+          visitReturn(methodVisitor, (ReturnStatement) statement);
+        }
+        case EXPRESSION -> {
+          visitExpression(methodVisitor, ((ExpressionStatement) statement).getExpression());
         }
         default -> {
           throw new IllegalStateException(String.format("Missing statement '%s': %s%n", statement.kind(), statement));
@@ -135,9 +127,10 @@ final class Jit {
 
   private static void visitIntLiteral(MethodVisitor methodVisitor, IntLiteral exp) {
     methodVisitor.visitLdcInsn(exp.getValue());
-
     switch (exp.getValue()) {
-      case Integer ignored -> RuntimeType.INT.visitRuntimeType(methodVisitor);
+      case Integer ignored -> {
+        methodVisitor.visitMethodInsn(INVOKESTATIC, INTEGER_TYPE.getInternalName(), "valueOf", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), INTEGER_TYPE.getDescriptor()), false);
+      }
       default -> throw new IllegalStateException("Unexpected value: " + exp.getValue());
     }
   }
@@ -146,18 +139,13 @@ final class Jit {
     visitExpression(methodVisitor, exp.getX());
     visitExpression(methodVisitor, exp.getY());
     switch (exp.getOperator()) {
-      case PLUS -> visitSumOperator(methodVisitor, exp);
+      case PLUS -> visitSumOperator(methodVisitor);
       default -> throw new IllegalStateException("Unexpected value: " + exp.getOperator());
     }
   }
 
-  private static void visitSumOperator(MethodVisitor methodVisitor, BinaryOperatorExpression exp) {
-    // TODO this should change sum based on types
-    methodVisitor.visitInsn(POP); // hack: consume Y type
-    methodVisitor.visitInsn(SWAP); // hack: swap operand Y value with X type
-    methodVisitor.visitInsn(POP); // hack: consume X type
-    methodVisitor.visitInsn(IADD);
-    RuntimeType.INT.visitRuntimeType(methodVisitor);
+  private static void visitSumOperator(MethodVisitor methodVisitor) {
+    methodVisitor.visitMethodInsn(INVOKESTATIC, RUNTIME_UTILS_TYPE.getInternalName(), "sum", String.format("(%s%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
   }
 
   private static void visitStringLiteral(MethodVisitor methodVisitor, StringLiteral exp) {
@@ -168,14 +156,12 @@ final class Jit {
     var binding = exp.getBinding();
     switch (Objects.requireNonNull(binding).getScope()) {
       case UNIVERSAL -> {
-        Type starlarkType = Type.getType(Starlark.class);
-        methodVisitor.visitFieldInsn(GETSTATIC, starlarkType.getInternalName(), "UNIVERSE", IMMUTABLE_MAP_TYPE.getDescriptor());
+        methodVisitor.visitFieldInsn(GETSTATIC, STARLARK_TYPE.getInternalName(), "UNIVERSE", IMMUTABLE_MAP_TYPE.getDescriptor());
         methodVisitor.visitLdcInsn(binding.getName());
         methodVisitor.visitMethodInsn(INVOKEVIRTUAL, IMMUTABLE_MAP_TYPE.getInternalName(), "get", String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
       }
       default -> throw new IllegalStateException("Unexpected value: " + binding.getScope());
     }
-    RuntimeType.OBJ.visitRuntimeType(methodVisitor);
   }
 
   private static void visitCall(MethodVisitor methodVisitor, CallExpression exp) {
@@ -185,7 +171,6 @@ final class Jit {
     methodVisitor.visitVarInsn(ALOAD, 2);
     // push fn onto the stack
     visitExpression(methodVisitor, exp.getFunction());
-    methodVisitor.visitInsn(POP); // POP runtimeType off the stack
 
     methodVisitor.visitTypeInsn(NEW, ARRAY_LIST_TYPE.getInternalName());
     methodVisitor.visitInsn(DUP);
@@ -196,9 +181,8 @@ final class Jit {
         case Argument.Positional pos -> {
           methodVisitor.visitInsn(DUP);
           visitExpression(methodVisitor, pos.getValue());
-          visitAutoboxing(methodVisitor);
           methodVisitor.visitMethodInsn(INVOKEVIRTUAL, ARRAY_LIST_TYPE.getInternalName(), "add", String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), Type.BOOLEAN_TYPE.getDescriptor()), false);
-          methodVisitor.visitInsn(POP);
+          methodVisitor.visitInsn(POP); // ignore index of value added
         }
         default -> throw new IllegalStateException("Unexpected value: " + argument);
       }
@@ -221,12 +205,6 @@ final class Jit {
             OBJECT_TYPE.getDescriptor()
         ),
         false);
-  }
-
-  private static void visitAutoboxing(MethodVisitor methodVisitor) {
-    Type integerType = Type.getType(Integer.class);
-    methodVisitor.visitInsn(POP);
-    methodVisitor.visitMethodInsn(INVOKESTATIC, integerType.getInternalName(), "valueOf", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), integerType.getDescriptor()));
   }
 
   private static void verifyClassWriter(ClassWriter cw) {
@@ -292,6 +270,15 @@ final class Jit {
       if (this.name.equals(name))
         return clazz;
       return super.loadClass(name);
+    }
+  }
+
+  public static final class RuntimeUtils {
+    public static Object sum(Object x, Object y) {
+      if (x instanceof Integer xInt && y instanceof Integer yInt) {
+        return xInt + yInt;
+      }
+      throw new IllegalArgumentException(String.format("Cannot sum types '%s' and '%s'", x.getClass().getName(), y.getClass().getName()));
     }
   }
 }
