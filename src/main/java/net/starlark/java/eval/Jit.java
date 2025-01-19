@@ -1,17 +1,8 @@
 package net.starlark.java.eval;
 
 import com.google.common.collect.ImmutableMap;
-import net.starlark.java.syntax.Argument;
-import net.starlark.java.syntax.CallExpression;
-import net.starlark.java.syntax.Expression;
-import net.starlark.java.syntax.Identifier;
-import net.starlark.java.syntax.ReturnStatement;
-import net.starlark.java.syntax.Statement;
-import net.starlark.java.syntax.StringLiteral;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Type;
+import net.starlark.java.syntax.*;
+import org.objectweb.asm.*;
 import org.objectweb.asm.util.CheckClassAdapter;
 
 import java.io.PrintWriter;
@@ -23,23 +14,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
-import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
-import static org.objectweb.asm.Opcodes.ALOAD;
-import static org.objectweb.asm.Opcodes.ARETURN;
-import static org.objectweb.asm.Opcodes.DUP;
-import static org.objectweb.asm.Opcodes.GETSTATIC;
-import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
-import static org.objectweb.asm.Opcodes.INVOKESTATIC;
-import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
-import static org.objectweb.asm.Opcodes.NEW;
-import static org.objectweb.asm.Opcodes.POP;
-import static org.objectweb.asm.Opcodes.RETURN;
-import static org.objectweb.asm.Opcodes.SWAP;
-import static org.objectweb.asm.Opcodes.V17;
+import static org.objectweb.asm.Opcodes.*;
 
 final class Jit {
+  public enum RuntimeType {
+    INT,
+    LONG,
+    FLOAT,
+    DOUBLE,
+    OBJ
+  }
+
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
 
@@ -120,8 +108,33 @@ final class Jit {
       case CALL -> visitCall(methodVisitor, (CallExpression) exp);
       case IDENTIFIER -> visitIdentifier(methodVisitor, (Identifier) exp);
       case STRING_LITERAL -> visitStringLiteral(methodVisitor, (StringLiteral) exp);
+      case BINARY_OPERATOR -> visitBinaryOperator(methodVisitor, (BinaryOperatorExpression) exp);
+      case INT_LITERAL -> visitIntLiteral(methodVisitor, (IntLiteral) exp);
       default -> throw new IllegalStateException("Unexpected value: " + exp.kind());
     }
+  }
+
+  private static void visitIntLiteral(MethodVisitor methodVisitor, IntLiteral exp) {
+    methodVisitor.visitLdcInsn(exp.getValue());
+    visitRuntimeType(methodVisitor, exp.getValue());
+  }
+
+  private static void visitBinaryOperator(MethodVisitor methodVisitor, BinaryOperatorExpression exp) {
+    visitExpression(methodVisitor, exp.getX());
+    visitExpression(methodVisitor, exp.getY());
+    switch (exp.getOperator()) {
+      case PLUS -> visitSumOperator(methodVisitor, exp);
+      default -> throw new IllegalStateException("Unexpected value: " + exp.getOperator());
+    }
+  }
+
+  private static void visitSumOperator(MethodVisitor methodVisitor, BinaryOperatorExpression exp) {
+    // TODO this should change sum based on types
+    methodVisitor.visitInsn(POP); // hack: consume Y type
+    methodVisitor.visitInsn(SWAP); // hack: swap operand Y value with X type
+    methodVisitor.visitInsn(POP); // hack: consume X type
+    methodVisitor.visitInsn(IADD);
+    methodVisitor.visitLdcInsn(RuntimeType.INT.ordinal());
   }
 
   private static void visitStringLiteral(MethodVisitor methodVisitor, StringLiteral exp) {
@@ -164,6 +177,7 @@ final class Jit {
         case Argument.Positional pos -> {
           methodVisitor.visitInsn(DUP);
           visitExpression(methodVisitor, pos.getValue());
+          visitAutoboxing(methodVisitor);
           methodVisitor.visitMethodInsn(INVOKEVIRTUAL, arrayListType.getInternalName(), "add", String.format("(%s)%s", objectType.getDescriptor(), Type.BOOLEAN_TYPE.getDescriptor()), false);
           methodVisitor.visitInsn(POP);
         }
@@ -188,6 +202,21 @@ final class Jit {
             Type.getType(Object.class).getDescriptor()
         ),
         false);
+  }
+
+  private static void visitRuntimeType(MethodVisitor methodVisitor, Object target) {
+    switch (target) {
+      case Integer ignored -> {
+        methodVisitor.visitLdcInsn(RuntimeType.INT.ordinal());
+      }
+      default -> throw new IllegalStateException("Unexpected value: " + target);
+    }
+  }
+
+  private static void visitAutoboxing(MethodVisitor methodVisitor) {
+    Type integerType = Type.getType(Integer.class);
+    methodVisitor.visitInsn(POP);
+    methodVisitor.visitMethodInsn(INVOKESTATIC, integerType.getInternalName(), "valueOf", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), integerType.getDescriptor()));
   }
 
   private static void verifyClassWriter(ClassWriter cw) {
