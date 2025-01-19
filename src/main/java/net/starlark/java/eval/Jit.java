@@ -25,8 +25,22 @@ final class Jit {
     LONG,
     FLOAT,
     DOUBLE,
-    OBJ
+    OBJ;
+
+    public void visitRuntimeType(MethodVisitor methodVisitor) {
+      methodVisitor.visitLdcInsn(this.ordinal());
+    }
   }
+
+
+  private static final Type IMMUTABLE_MAP_TYPE = Type.getType(ImmutableMap.class);
+  private static final Type OBJECT_TYPE = Type.getType(Object.class);
+  private static final Type STARLARK_TYPE = Type.getType(Starlark.class);
+  private static final Type ARRAY_LIST_TYPE = Type.getType(ArrayList.class);
+  private static final Type HASH_MAP_TYPE = Type.getType(HashMap.class);
+  private static final Type STARLARK_THREAD_TYPE = Type.getType(StarlarkThread.class);
+  private static final Type LIST_TYPE = Type.getType(List.class);
+  private static final Type MAP_TYPE = Type.getType(Map.class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -99,7 +113,12 @@ final class Jit {
   }
 
   private static void visitReturn(MethodVisitor methodVisitor, ReturnStatement statement) {
-    visitExpression(methodVisitor, statement.getResult());
+    Expression result = statement.getResult();
+    if (result == null) {
+      methodVisitor.visitInsn(ACONST_NULL);
+    } else {
+      visitExpression(methodVisitor, result);
+    }
     methodVisitor.visitInsn(ARETURN);
   }
 
@@ -116,7 +135,11 @@ final class Jit {
 
   private static void visitIntLiteral(MethodVisitor methodVisitor, IntLiteral exp) {
     methodVisitor.visitLdcInsn(exp.getValue());
-    visitRuntimeType(methodVisitor, exp.getValue());
+
+    switch (exp.getValue()) {
+      case Integer ignored -> RuntimeType.INT.visitRuntimeType(methodVisitor);
+      default -> throw new IllegalStateException("Unexpected value: " + exp.getValue());
+    }
   }
 
   private static void visitBinaryOperator(MethodVisitor methodVisitor, BinaryOperatorExpression exp) {
@@ -134,7 +157,7 @@ final class Jit {
     methodVisitor.visitInsn(SWAP); // hack: swap operand Y value with X type
     methodVisitor.visitInsn(POP); // hack: consume X type
     methodVisitor.visitInsn(IADD);
-    methodVisitor.visitLdcInsn(RuntimeType.INT.ordinal());
+    RuntimeType.INT.visitRuntimeType(methodVisitor);
   }
 
   private static void visitStringLiteral(MethodVisitor methodVisitor, StringLiteral exp) {
@@ -142,35 +165,31 @@ final class Jit {
   }
 
   private static void visitIdentifier(MethodVisitor methodVisitor, Identifier exp) {
-    Type immutableMapType = Type.getType(ImmutableMap.class);
-    Type objectType = Type.getType(Object.class);
     var binding = exp.getBinding();
     switch (Objects.requireNonNull(binding).getScope()) {
       case UNIVERSAL -> {
         Type starlarkType = Type.getType(Starlark.class);
-        methodVisitor.visitFieldInsn(GETSTATIC, starlarkType.getInternalName(), "UNIVERSE", immutableMapType.getDescriptor());
+        methodVisitor.visitFieldInsn(GETSTATIC, starlarkType.getInternalName(), "UNIVERSE", IMMUTABLE_MAP_TYPE.getDescriptor());
         methodVisitor.visitLdcInsn(binding.getName());
-        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, immutableMapType.getInternalName(), "get", String.format("(%s)%s", objectType.getDescriptor(), objectType.getDescriptor()), false);
+        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, IMMUTABLE_MAP_TYPE.getInternalName(), "get", String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
       }
       default -> throw new IllegalStateException("Unexpected value: " + binding.getScope());
     }
+    RuntimeType.OBJ.visitRuntimeType(methodVisitor);
   }
 
   private static void visitCall(MethodVisitor methodVisitor, CallExpression exp) {
-    Type starlarkType = Type.getType(Starlark.class);
-    Type arrayListType = Type.getType(ArrayList.class);
-    Type hashMapType = Type.getType(HashMap.class);
-    Type objectType = Type.getType(Object.class);
 
     // Object Starlark.call(StarlarkThread thread, Object fn, List<Object> args, Map<String, Object> kwargs)
     // push StarlarkThread onto the stack
     methodVisitor.visitVarInsn(ALOAD, 2);
     // push fn onto the stack
     visitExpression(methodVisitor, exp.getFunction());
+    methodVisitor.visitInsn(POP); // POP runtimeType off the stack
 
-    methodVisitor.visitTypeInsn(NEW, arrayListType.getInternalName());
+    methodVisitor.visitTypeInsn(NEW, ARRAY_LIST_TYPE.getInternalName());
     methodVisitor.visitInsn(DUP);
-    methodVisitor.visitMethodInsn(INVOKESPECIAL, arrayListType.getInternalName(), "<init>", "()V", false);
+    methodVisitor.visitMethodInsn(INVOKESPECIAL, ARRAY_LIST_TYPE.getInternalName(), "<init>", "()V", false);
 
     for (Argument argument : exp.getArguments()) {
       switch (argument) {
@@ -178,39 +197,30 @@ final class Jit {
           methodVisitor.visitInsn(DUP);
           visitExpression(methodVisitor, pos.getValue());
           visitAutoboxing(methodVisitor);
-          methodVisitor.visitMethodInsn(INVOKEVIRTUAL, arrayListType.getInternalName(), "add", String.format("(%s)%s", objectType.getDescriptor(), Type.BOOLEAN_TYPE.getDescriptor()), false);
+          methodVisitor.visitMethodInsn(INVOKEVIRTUAL, ARRAY_LIST_TYPE.getInternalName(), "add", String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), Type.BOOLEAN_TYPE.getDescriptor()), false);
           methodVisitor.visitInsn(POP);
         }
         default -> throw new IllegalStateException("Unexpected value: " + argument);
       }
     }
 
-    methodVisitor.visitTypeInsn(NEW, hashMapType.getInternalName());
+    methodVisitor.visitTypeInsn(NEW, HASH_MAP_TYPE.getInternalName());
     methodVisitor.visitInsn(DUP);
-    methodVisitor.visitMethodInsn(INVOKESPECIAL, hashMapType.getInternalName(), "<init>", "()V", false);
+    methodVisitor.visitMethodInsn(INVOKESPECIAL, HASH_MAP_TYPE.getInternalName(), "<init>", "()V", false);
 
     methodVisitor.visitMethodInsn(
         INVOKESTATIC,
-        starlarkType.getInternalName(),
+        STARLARK_TYPE.getInternalName(),
         "call",
         String.format(
             "(%s%s%s%s)%s",
-            Type.getType(StarlarkThread.class).getDescriptor(),
-            Type.getType(Object.class).getDescriptor(),
-            Type.getType(List.class).getDescriptor(),
-            Type.getType(Map.class).getDescriptor(),
-            Type.getType(Object.class).getDescriptor()
+            STARLARK_THREAD_TYPE.getDescriptor(),
+            OBJECT_TYPE.getDescriptor(),
+            LIST_TYPE.getDescriptor(),
+            MAP_TYPE.getDescriptor(),
+            OBJECT_TYPE.getDescriptor()
         ),
         false);
-  }
-
-  private static void visitRuntimeType(MethodVisitor methodVisitor, Object target) {
-    switch (target) {
-      case Integer ignored -> {
-        methodVisitor.visitLdcInsn(RuntimeType.INT.ordinal());
-      }
-      default -> throw new IllegalStateException("Unexpected value: " + target);
-    }
   }
 
   private static void visitAutoboxing(MethodVisitor methodVisitor) {
