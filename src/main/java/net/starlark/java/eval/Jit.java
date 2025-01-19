@@ -62,17 +62,7 @@ final class Jit {
 
     var statements = fn.rfn.getBody();
     for (Statement statement : statements) {
-      switch (statement.kind()) {
-        case RETURN -> {
-          visitReturn(methodVisitor, (ReturnStatement) statement);
-        }
-        case EXPRESSION -> {
-          visitExpression(methodVisitor, ((ExpressionStatement) statement).getExpression());
-        }
-        default -> {
-          throw new IllegalStateException(String.format("Missing statement '%s': %s%n", statement.kind(), statement));
-        }
-      }
+      visitStatement(statement, methodVisitor);
     }
 
     methodVisitor.visitMaxs(-1, -1);
@@ -102,6 +92,27 @@ final class Jit {
              InstantiationException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  private static void visitStatement(Statement statement, MethodVisitor methodVisitor) {
+    switch (statement.kind()) {
+      case RETURN -> {
+        visitReturn(methodVisitor, (ReturnStatement) statement);
+      }
+      case EXPRESSION -> {
+        visitExpression(methodVisitor, ((ExpressionStatement) statement).getExpression());
+      }
+      case DEF -> {
+        visitDef(methodVisitor, (DefStatement) statement);
+      }
+      default -> {
+        throw new IllegalStateException(String.format("Missing statement '%s': %s%n", statement.kind(), statement));
+      }
+    }
+  }
+
+  private static void visitDef(MethodVisitor methodVisitor, DefStatement statement) {
+    throw new RuntimeException("Not implemented");
   }
 
   private static void visitReturn(MethodVisitor methodVisitor, ReturnStatement statement) {
