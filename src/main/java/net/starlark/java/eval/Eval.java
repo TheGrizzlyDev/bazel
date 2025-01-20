@@ -54,7 +54,7 @@ import net.starlark.java.syntax.StringLiteral;
 import net.starlark.java.syntax.TokenKind;
 import net.starlark.java.syntax.UnaryOperatorExpression;
 
-final class Eval {
+public final class Eval {
 
   private Eval() {} // uninstantiable
 
@@ -161,7 +161,7 @@ final class Eval {
     return TokenKind.PASS;
   }
 
-  private static StarlarkFunction newFunction(StarlarkThread.Frame fr, Resolver.Function rfn)
+  public static StarlarkFunction newFunction(StarlarkThread.Frame fr, Resolver.Function rfn)
       throws EvalException, InterruptedException {
     // Evaluate default value expressions of optional parameters.
     // We use MANDATORY to indicate a required parameter

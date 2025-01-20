@@ -76,13 +76,13 @@ public final class StarlarkFunction implements StarlarkCallable {
   }
 
   // Sets a global variable, given its index in this function's compiled Program.
-  void setGlobal(int progIndex, Object value) {
+  public void setGlobal(int progIndex, Object value) {
     module.setGlobalByIndex(globalIndex[progIndex], value);
   }
 
   // Gets the value of a global variable, given its index in this function's compiled Program.
   @Nullable
-  Object getGlobal(int progIndex) {
+  public Object getGlobal(int progIndex) {
     return module.getGlobalByIndex(globalIndex[progIndex]);
   }
 

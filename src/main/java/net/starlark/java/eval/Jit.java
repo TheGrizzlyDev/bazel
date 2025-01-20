@@ -14,7 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -26,15 +25,46 @@ final class Jit {
   private static final Type ARRAY_LIST_TYPE = Type.getType(ArrayList.class);
   private static final Type HASH_MAP_TYPE = Type.getType(HashMap.class);
   private static final Type STARLARK_THREAD_TYPE = Type.getType(StarlarkThread.class);
+  private static final Type STARLARK_FRAME_TYPE = Type.getType(StarlarkThread.Frame.class);
   private static final Type LIST_TYPE = Type.getType(List.class);
   private static final Type MAP_TYPE = Type.getType(Map.class);
   private static final Type INTEGER_TYPE = Type.getType(Integer.class);
   private static final Type RUNTIME_UTILS_TYPE = Type.getType(RuntimeUtils.class);
+  private static final Type EVAL_TYPE = Type.getType(Eval.class);
+  private static final Type RESOLVER_FUNCTION_TYPE = Type.getType(Resolver.Function.class);
+  private static final Type STARLARK_FUNCTION_TYPE = Type.getType(StarlarkFunction.class);
+  private static final Type STARLARK_CALLABLE_TYPE = Type.getType(StarlarkCallable.class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-
     String className = String.format("JitImpl%s", fn.getName().replaceAll("\\W", ""));
+    HashMap<Integer, Resolver.Function> resolvedFunctions = new HashMap<>();
+
+    jitStarlarkFn(fn, cw, className, resolvedFunctions);
+
+    var cl = new SingleClassLoader(Jit.class.getClassLoader(), className, cw.toByteArray());
+
+    try {
+      Class<?> jitClass = cl.loadClass(className);
+
+      Constructor<?> constructor = jitClass.getConstructor();
+      Object jitMethodInstance = constructor.newInstance();
+      Method call = jitClass.getMethod("call", StarlarkThread.Frame.class, StarlarkThread.class, Map.class);
+
+      return frame -> {
+        try {
+          return call.invoke(jitMethodInstance, frame, frame.thread, resolvedFunctions);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+          throw new RuntimeException(e);
+        }
+      };
+    } catch (ClassNotFoundException | NoSuchMethodException | InvocationTargetException | IllegalAccessException |
+             InstantiationException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static void jitStarlarkFn(StarlarkFunction fn, ClassWriter cw, String className, HashMap<Integer, Resolver.Function> resolvedFunctions) {
     cw.visit(V17, ACC_PUBLIC, className, null, "java/lang/Object", null);
 
     var constructorVisitor = cw.visitMethod(
@@ -55,46 +85,33 @@ final class Jit {
     var methodVisitor = cw.visitMethod(
         ACC_PUBLIC,
         "call",
-        "(Lnet/starlark/java/eval/StarlarkThread$Frame;Lnet/starlark/java/eval/StarlarkThread;)Ljava/lang/Object;",
+        String.format(
+            "(%s%s%s)%s",
+            STARLARK_FRAME_TYPE.getDescriptor(),
+            STARLARK_THREAD_TYPE.getDescriptor(),
+            MAP_TYPE.getDescriptor(),
+            OBJECT_TYPE.getDescriptor()
+        ),
         null,
         null);
     methodVisitor.visitCode();
 
     var statements = fn.rfn.getBody();
     for (Statement statement : statements) {
-      visitStatement(statement, methodVisitor);
+      visitStatement(statement, methodVisitor, resolvedFunctions);
     }
 
+    methodVisitor.visitInsn(ACONST_NULL);
+    methodVisitor.visitInsn(ARETURN);
     methodVisitor.visitMaxs(-1, -1);
 
     methodVisitor.visitEnd();
     cw.visitEnd();
 
     verifyClassWriter(cw);
-
-    var cl = new SingleClassLoader(Jit.class.getClassLoader(), className, cw.toByteArray());
-
-    try {
-      Class<?> jitClass = cl.loadClass(className);
-
-      Constructor<?> constructor = jitClass.getConstructor();
-      Object jitMethodInstance = constructor.newInstance();
-      Method call = jitClass.getMethod("call", StarlarkThread.Frame.class, StarlarkThread.class);
-
-      return frame -> {
-        try {
-          return call.invoke(jitMethodInstance, frame, frame.thread);
-        } catch (IllegalAccessException | InvocationTargetException e) {
-          throw new RuntimeException(e);
-        }
-      };
-    } catch (ClassNotFoundException | NoSuchMethodException | InvocationTargetException | IllegalAccessException |
-             InstantiationException e) {
-      throw new RuntimeException(e);
-    }
   }
 
-  private static void visitStatement(Statement statement, MethodVisitor methodVisitor) {
+  private static void visitStatement(Statement statement, MethodVisitor methodVisitor, HashMap<Integer, Resolver.Function> resolvedFunctions) {
     switch (statement.kind()) {
       case RETURN -> {
         visitReturn(methodVisitor, (ReturnStatement) statement);
@@ -103,7 +120,7 @@ final class Jit {
         visitExpression(methodVisitor, ((ExpressionStatement) statement).getExpression());
       }
       case DEF -> {
-        visitDef(methodVisitor, (DefStatement) statement);
+        visitDef(methodVisitor, (DefStatement) statement, resolvedFunctions);
       }
       default -> {
         throw new IllegalStateException(String.format("Missing statement '%s': %s%n", statement.kind(), statement));
@@ -111,8 +128,59 @@ final class Jit {
     }
   }
 
-  private static void visitDef(MethodVisitor methodVisitor, DefStatement statement) {
-    throw new RuntimeException("Not implemented");
+  private static void visitDef(MethodVisitor methodVisitor, DefStatement statement, HashMap<Integer, Resolver.Function> resolvedFunctions) {
+    Resolver.Function resolvedFunction = statement.getResolvedFunction();
+
+    if (resolvedFunction == null) {
+      throw new IllegalArgumentException("we cannot handle a missing resolved function here yet");
+    }
+
+    resolvedFunctions.put(resolvedFunction.hashCode(), resolvedFunction);
+
+    // push frame onto the stack
+    methodVisitor.visitVarInsn(ALOAD, 1);
+
+    // push resolvedFn map onto the stack
+    methodVisitor.visitVarInsn(ALOAD, 3);
+
+    // push fn hashcode onto the stack
+    methodVisitor.visitLdcInsn(resolvedFunction.hashCode());
+    methodVisitor.visitMethodInsn(INVOKESTATIC, INTEGER_TYPE.getInternalName(), "valueOf", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), INTEGER_TYPE.getDescriptor()), false);
+
+    methodVisitor.visitMethodInsn(
+        INVOKEINTERFACE,
+        MAP_TYPE.getInternalName(),
+        "get",
+        String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()),
+        true
+    );
+
+    methodVisitor.visitTypeInsn(CHECKCAST, RESOLVER_FUNCTION_TYPE.getInternalName());
+
+    // call public static StarlarkFunction Eval.newFunction(StarlarkThread.Frame fr, Resolver.Function rfn)
+    methodVisitor.visitMethodInsn(INVOKESTATIC, EVAL_TYPE.getInternalName(), "newFunction", String.format("(%s%s)%s", STARLARK_FRAME_TYPE.getDescriptor(), RESOLVER_FUNCTION_TYPE.getDescriptor(), STARLARK_FUNCTION_TYPE.getDescriptor()), false);
+
+    visitAssignToIdentifier(methodVisitor, statement.getIdentifier());
+  }
+
+  private static void visitAssignToIdentifier(MethodVisitor methodVisitor, Identifier identifier) {
+    switch (identifier.getBinding().getScope()) {
+      case GLOBAL -> {
+        // push frame onto the stack
+        methodVisitor.visitVarInsn(ALOAD, 1);
+        // get function
+        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FRAME_TYPE.getInternalName(), "getFunction", String.format("()%s", STARLARK_CALLABLE_TYPE.getDescriptor()), false);
+        methodVisitor.visitTypeInsn(CHECKCAST, STARLARK_FUNCTION_TYPE.getInternalName());
+        // swap with the value to assign
+        methodVisitor.visitInsn(SWAP);
+        methodVisitor.visitLdcInsn(identifier.getBinding().getIndex());
+        methodVisitor.visitInsn(SWAP);
+
+        // void StarlarkFunction.setGlobal(int progIndex, Object value)
+        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FUNCTION_TYPE.getInternalName(), "setGlobal", String.format("(%s%s)%s", Type.INT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor(), Type.VOID_TYPE.getDescriptor()), false);
+      }
+      default -> throw new IllegalStateException("Unexpected value: " + identifier.getBinding().getScope());
+    }
   }
 
   private static void visitReturn(MethodVisitor methodVisitor, ReturnStatement statement) {
@@ -169,7 +237,22 @@ final class Jit {
       case UNIVERSAL -> {
         methodVisitor.visitFieldInsn(GETSTATIC, STARLARK_TYPE.getInternalName(), "UNIVERSE", IMMUTABLE_MAP_TYPE.getDescriptor());
         methodVisitor.visitLdcInsn(binding.getName());
+
+        // replace with Map.get
         methodVisitor.visitMethodInsn(INVOKEVIRTUAL, IMMUTABLE_MAP_TYPE.getInternalName(), "get", String.format("(%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
+      }
+      case GLOBAL -> {
+
+        // push frame onto the stack
+        methodVisitor.visitVarInsn(ALOAD, 1);
+        // get function
+        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FRAME_TYPE.getInternalName(), "getFunction", String.format("()%s", STARLARK_CALLABLE_TYPE.getDescriptor()), false);
+        methodVisitor.visitTypeInsn(CHECKCAST, STARLARK_FUNCTION_TYPE.getInternalName());
+
+        methodVisitor.visitLdcInsn(exp.getBinding().getIndex());
+
+        // Object StarlarkFunction.getGlobal(int progIndex)
+        methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FUNCTION_TYPE.getInternalName(), "getGlobal", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
       }
       default -> throw new IllegalStateException("Unexpected value: " + binding.getScope());
     }
