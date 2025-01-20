@@ -142,7 +142,7 @@ public final class StarlarkThread {
     // The locals of this frame, if fn is a StarlarkFunction, otherwise null.
     // Set by StarlarkFunction.fastcall. Elements may be regular Starlark
     // values, or wrapped in StarlarkFunction.Cells if shared with a nested function.
-    @Nullable Object[] locals;
+    public @Nullable Object[] locals;
 
     private long profileStartTimeNanos; // start time nanos of walltime call profiler
 

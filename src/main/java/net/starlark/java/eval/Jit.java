@@ -34,6 +34,7 @@ final class Jit {
   private static final Type RESOLVER_FUNCTION_TYPE = Type.getType(Resolver.Function.class);
   private static final Type STARLARK_FUNCTION_TYPE = Type.getType(StarlarkFunction.class);
   private static final Type STARLARK_CALLABLE_TYPE = Type.getType(StarlarkCallable.class);
+  private static final Type ARRAY_OBJECT_TYPE = Type.getType(Object[].class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -179,6 +180,25 @@ final class Jit {
         // void StarlarkFunction.setGlobal(int progIndex, Object value)
         methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FUNCTION_TYPE.getInternalName(), "setGlobal", String.format("(%s%s)%s", Type.INT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor(), Type.VOID_TYPE.getDescriptor()), false);
       }
+      case LOCAL -> {
+        // push frame onto the stack
+        methodVisitor.visitVarInsn(ALOAD, 1);
+
+        // get locals onto the stack
+        methodVisitor.visitFieldInsn(GETFIELD, STARLARK_FRAME_TYPE.getInternalName(), "locals", ARRAY_OBJECT_TYPE.getInternalName());
+
+        // swap locals with value to assign
+        methodVisitor.visitInsn(SWAP);
+
+        // push index of identifier in locals array
+        methodVisitor.visitLdcInsn(identifier.getBinding().getIndex());
+
+        // swap index and value
+        methodVisitor.visitInsn(SWAP);
+
+        // assign to array
+        methodVisitor.visitInsn(AASTORE);
+      }
       default -> throw new IllegalStateException("Unexpected value: " + identifier.getBinding().getScope());
     }
   }
@@ -253,6 +273,19 @@ final class Jit {
 
         // Object StarlarkFunction.getGlobal(int progIndex)
         methodVisitor.visitMethodInsn(INVOKEVIRTUAL, STARLARK_FUNCTION_TYPE.getInternalName(), "getGlobal", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
+      }
+      case LOCAL -> {
+        // push frame onto the stack
+        methodVisitor.visitVarInsn(ALOAD, 1);
+
+        // get locals onto the stack
+        methodVisitor.visitFieldInsn(GETFIELD, STARLARK_FRAME_TYPE.getInternalName(), "locals", ARRAY_OBJECT_TYPE.getInternalName());
+
+        // push index of identifier in locals array
+        methodVisitor.visitLdcInsn(binding.getIndex());
+
+        // swap index and value
+        methodVisitor.visitInsn(AALOAD);
       }
       default -> throw new IllegalStateException("Unexpected value: " + binding.getScope());
     }
