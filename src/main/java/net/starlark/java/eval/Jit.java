@@ -30,6 +30,7 @@ final class Jit {
   private static final Type LIST_TYPE = Type.getType(List.class);
   private static final Type MAP_TYPE = Type.getType(Map.class);
   private static final Type INTEGER_TYPE = Type.getType(Integer.class);
+  private static final Type RUNTIME_UTILS_TYPE = Type.getType(RuntimeUtils.class);
   private static final Type EVAL_TYPE = Type.getType(Eval.class);
   private static final Type RESOLVER_FUNCTION_TYPE = Type.getType(Resolver.Function.class);
   private static final Type STARLARK_FUNCTION_TYPE = Type.getType(StarlarkFunction.class);
@@ -285,7 +286,7 @@ final class Jit {
   }
 
   private static void visitSumOperator(MethodVisitor methodVisitor) {
-    methodVisitor.visitMethodInsn(INVOKESTATIC, STARLARK_INT_TYPE.getInternalName(), "add", String.format("(%s%s)%s", STARLARK_INT_TYPE.getDescriptor(), STARLARK_INT_TYPE.getDescriptor(), STARLARK_INT_TYPE.getDescriptor()), false);
+    methodVisitor.visitMethodInsn(INVOKESTATIC, RUNTIME_UTILS_TYPE.getInternalName(), "sum", String.format("(%s%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
   }
 
   private static void visitStringLiteral(MethodVisitor methodVisitor, StringLiteral exp) {
@@ -444,13 +445,13 @@ final class Jit {
       return super.loadClass(name);
     }
   }
-//
-//  public static final class RuntimeUtils {
-//    public static Object sum(Object x, Object y) {
-//      if (x instanceof Integer xInt && y instanceof Integer yInt) {
-//        return xInt + yInt;
-//      }
-//      throw new IllegalArgumentException(String.format("Cannot sum types '%s' and '%s'", x.getClass().getName(), y.getClass().getName()));
-//    }
-//  }
+
+  public static final class RuntimeUtils {
+    public static Object sum(Object x, Object y) {
+      if (x instanceof StarlarkInt xInt && y instanceof StarlarkInt yInt) {
+        return StarlarkInt.add(xInt, yInt);
+      }
+      throw new IllegalArgumentException(String.format("Cannot sum types '%s' and '%s'", x.getClass().getName(), y.getClass().getName()));
+    }
+  }
 }
