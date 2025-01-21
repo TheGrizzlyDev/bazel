@@ -30,7 +30,6 @@ final class Jit {
   private static final Type LIST_TYPE = Type.getType(List.class);
   private static final Type MAP_TYPE = Type.getType(Map.class);
   private static final Type INTEGER_TYPE = Type.getType(Integer.class);
-  private static final Type RUNTIME_UTILS_TYPE = Type.getType(RuntimeUtils.class);
   private static final Type EVAL_TYPE = Type.getType(Eval.class);
   private static final Type RESOLVER_FUNCTION_TYPE = Type.getType(Resolver.Function.class);
   private static final Type STARLARK_FUNCTION_TYPE = Type.getType(StarlarkFunction.class);
@@ -41,7 +40,7 @@ final class Jit {
   private static final Type ITERATOR_TYPE = Type.getType(Iterator.class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
-    var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+    var cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
     String className = String.format("JitImpl%s", fn.getName().replaceAll("\\W", ""));
     HashMap<Integer, Resolver.Function> resolvedFunctions = new HashMap<>();
 
@@ -84,7 +83,7 @@ final class Jit {
     constructorVisitor.visitVarInsn(ALOAD, 0);
     constructorVisitor.visitMethodInsn(INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
     constructorVisitor.visitInsn(RETURN);
-    constructorVisitor.visitMaxs(-1, -1);
+    constructorVisitor.visitMaxs(0, 0);
     constructorVisitor.visitEnd();
 
     var methodVisitor = cw.visitMethod(
@@ -108,7 +107,7 @@ final class Jit {
 
     methodVisitor.visitInsn(ACONST_NULL);
     methodVisitor.visitInsn(ARETURN);
-    methodVisitor.visitMaxs(-1, -1);
+    methodVisitor.visitMaxs(0, 0);
 
     methodVisitor.visitEnd();
     cw.visitEnd();
@@ -123,6 +122,7 @@ final class Jit {
       }
       case EXPRESSION -> {
         visitExpression(methodVisitor, ((ExpressionStatement) statement).getExpression());
+        methodVisitor.visitInsn(POP);
       }
       case DEF -> {
         visitDef(methodVisitor, (DefStatement) statement, resolvedFunctions);
@@ -139,9 +139,7 @@ final class Jit {
   private static void visitFor(MethodVisitor methodVisitor, ForStatement statement, Map<Integer, Resolver.Function> resolvedFunctions) {
     visitExpression(methodVisitor, statement.getCollection());
     methodVisitor.visitMethodInsn(INVOKEINTERFACE, STARLARK_ITERABLE_TYPE.getInternalName(), "iterator", String.format("()%s", ITERATOR_TYPE.getDescriptor()), true);
-//    methodVisitor.visitMethodInsn(INVOKEINTERFACE, ITERATOR_TYPE.getInternalName(), "next", String.format("()%s", OBJECT_TYPE.getDescriptor()), true);
-//    visitPrintLastElementOnStack(methodVisitor);
-//    visitAssignToIdentifier(methodVisitor, statement.getVars());
+
     Label startLoopLabel = new Label();
     Label endLoopLabel = new Label();
 
@@ -154,13 +152,22 @@ final class Jit {
     methodVisitor.visitInsn(DUP);
     methodVisitor.visitMethodInsn(INVOKEINTERFACE, ITERATOR_TYPE.getInternalName(), "next", String.format("()%s", OBJECT_TYPE.getDescriptor()), true);
 
-    visitPrintLastElementOnStack(methodVisitor);
-    methodVisitor.visitInsn(POP);
+    visitForAssignment(methodVisitor, statement.getVars());
+
+    for (Statement loopStatement : statement.getBody()) {
+      visitStatement(loopStatement, methodVisitor, resolvedFunctions);
+    }
 
     methodVisitor.visitJumpInsn(GOTO, startLoopLabel);
-
     methodVisitor.visitLabel(endLoopLabel);
+    methodVisitor.visitInsn(POP);
+  }
 
+  private static void visitForAssignment(MethodVisitor methodVisitor, Expression vars) {
+    switch (vars.kind()) {
+      case IDENTIFIER -> visitAssignToIdentifier(methodVisitor, (Identifier) vars);
+      default -> throw new IllegalStateException("Unexpected value: " + vars.kind());
+    }
   }
 
   private static void visitDef(MethodVisitor methodVisitor, DefStatement statement, Map<Integer, Resolver.Function> resolvedFunctions) {
@@ -278,7 +285,7 @@ final class Jit {
   }
 
   private static void visitSumOperator(MethodVisitor methodVisitor) {
-    methodVisitor.visitMethodInsn(INVOKESTATIC, RUNTIME_UTILS_TYPE.getInternalName(), "sum", String.format("(%s%s)%s", OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor(), OBJECT_TYPE.getDescriptor()), false);
+    methodVisitor.visitMethodInsn(INVOKESTATIC, STARLARK_INT_TYPE.getInternalName(), "add", String.format("(%s%s)%s", STARLARK_INT_TYPE.getDescriptor(), STARLARK_INT_TYPE.getDescriptor(), STARLARK_INT_TYPE.getDescriptor()), false);
   }
 
   private static void visitStringLiteral(MethodVisitor methodVisitor, StringLiteral exp) {
@@ -437,13 +444,13 @@ final class Jit {
       return super.loadClass(name);
     }
   }
-
-  public static final class RuntimeUtils {
-    public static Object sum(Object x, Object y) {
-      if (x instanceof Integer xInt && y instanceof Integer yInt) {
-        return xInt + yInt;
-      }
-      throw new IllegalArgumentException(String.format("Cannot sum types '%s' and '%s'", x.getClass().getName(), y.getClass().getName()));
-    }
-  }
+//
+//  public static final class RuntimeUtils {
+//    public static Object sum(Object x, Object y) {
+//      if (x instanceof Integer xInt && y instanceof Integer yInt) {
+//        return xInt + yInt;
+//      }
+//      throw new IllegalArgumentException(String.format("Cannot sum types '%s' and '%s'", x.getClass().getName(), y.getClass().getName()));
+//    }
+//  }
 }
