@@ -11,6 +11,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,7 +35,10 @@ final class Jit {
   private static final Type RESOLVER_FUNCTION_TYPE = Type.getType(Resolver.Function.class);
   private static final Type STARLARK_FUNCTION_TYPE = Type.getType(StarlarkFunction.class);
   private static final Type STARLARK_CALLABLE_TYPE = Type.getType(StarlarkCallable.class);
+  private static final Type STARLARK_INT_TYPE = Type.getType(StarlarkInt.class);
   private static final Type ARRAY_OBJECT_TYPE = Type.getType(Object[].class);
+  private static final Type STARLARK_ITERABLE_TYPE = Type.getType(StarlarkIterable.class);
+  private static final Type ITERATOR_TYPE = Type.getType(Iterator.class);
 
   public static Function<StarlarkThread.Frame, Object> compile(StarlarkFunction fn) {
     var cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -112,7 +116,7 @@ final class Jit {
     verifyClassWriter(cw);
   }
 
-  private static void visitStatement(Statement statement, MethodVisitor methodVisitor, HashMap<Integer, Resolver.Function> resolvedFunctions) {
+  private static void visitStatement(Statement statement, MethodVisitor methodVisitor, Map<Integer, Resolver.Function> resolvedFunctions) {
     switch (statement.kind()) {
       case RETURN -> {
         visitReturn(methodVisitor, (ReturnStatement) statement);
@@ -123,13 +127,43 @@ final class Jit {
       case DEF -> {
         visitDef(methodVisitor, (DefStatement) statement, resolvedFunctions);
       }
+      case FOR -> {
+        visitFor(methodVisitor, (ForStatement) statement, resolvedFunctions);
+      }
       default -> {
         throw new IllegalStateException(String.format("Missing statement '%s': %s%n", statement.kind(), statement));
       }
     }
   }
 
-  private static void visitDef(MethodVisitor methodVisitor, DefStatement statement, HashMap<Integer, Resolver.Function> resolvedFunctions) {
+  private static void visitFor(MethodVisitor methodVisitor, ForStatement statement, Map<Integer, Resolver.Function> resolvedFunctions) {
+    visitExpression(methodVisitor, statement.getCollection());
+    methodVisitor.visitMethodInsn(INVOKEINTERFACE, STARLARK_ITERABLE_TYPE.getInternalName(), "iterator", String.format("()%s", ITERATOR_TYPE.getDescriptor()), true);
+//    methodVisitor.visitMethodInsn(INVOKEINTERFACE, ITERATOR_TYPE.getInternalName(), "next", String.format("()%s", OBJECT_TYPE.getDescriptor()), true);
+//    visitPrintLastElementOnStack(methodVisitor);
+//    visitAssignToIdentifier(methodVisitor, statement.getVars());
+    Label startLoopLabel = new Label();
+    Label endLoopLabel = new Label();
+
+    methodVisitor.visitLabel(startLoopLabel);
+    methodVisitor.visitInsn(DUP);
+    methodVisitor.visitMethodInsn(INVOKEINTERFACE, ITERATOR_TYPE.getInternalName(), "hasNext", String.format("()%s", Type.BOOLEAN_TYPE.getDescriptor()), true);
+
+    methodVisitor.visitJumpInsn(IFEQ, endLoopLabel);
+
+    methodVisitor.visitInsn(DUP);
+    methodVisitor.visitMethodInsn(INVOKEINTERFACE, ITERATOR_TYPE.getInternalName(), "next", String.format("()%s", OBJECT_TYPE.getDescriptor()), true);
+
+    visitPrintLastElementOnStack(methodVisitor);
+    methodVisitor.visitInsn(POP);
+
+    methodVisitor.visitJumpInsn(GOTO, startLoopLabel);
+
+    methodVisitor.visitLabel(endLoopLabel);
+
+  }
+
+  private static void visitDef(MethodVisitor methodVisitor, DefStatement statement, Map<Integer, Resolver.Function> resolvedFunctions) {
     Resolver.Function resolvedFunction = statement.getResolvedFunction();
 
     if (resolvedFunction == null) {
@@ -228,7 +262,7 @@ final class Jit {
     methodVisitor.visitLdcInsn(exp.getValue());
     switch (exp.getValue()) {
       case Integer ignored -> {
-        methodVisitor.visitMethodInsn(INVOKESTATIC, INTEGER_TYPE.getInternalName(), "valueOf", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), INTEGER_TYPE.getDescriptor()), false);
+        visitStarlarkIntBoxing(methodVisitor);
       }
       default -> throw new IllegalStateException("Unexpected value: " + exp.getValue());
     }
@@ -380,6 +414,10 @@ final class Jit {
         "()Ljava/lang/String;",
         false
     );
+  }
+
+  private static void visitStarlarkIntBoxing(MethodVisitor methodVisitor) {
+    methodVisitor.visitMethodInsn(INVOKESTATIC, STARLARK_INT_TYPE.getInternalName(), "of", String.format("(%s)%s", Type.INT_TYPE.getDescriptor(), STARLARK_INT_TYPE.getDescriptor()), false);
   }
 
   private static final class SingleClassLoader extends ClassLoader {
