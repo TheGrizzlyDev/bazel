@@ -15,6 +15,7 @@
 package com.google.devtools.build.lib.analysis.test;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.devtools.build.lib.actions.ExecutionRequirements;
@@ -34,6 +35,8 @@ import com.google.devtools.build.lib.server.FailureDetails.TestAction.Code;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Container for test target properties available to the
@@ -65,7 +68,7 @@ public class TestTargetProperties {
 
   private final TestSize size;
   private final TestTimeout timeout;
-  private final List<String> tags;
+  private final ImmutableList<String> tags;
   private final boolean isRemotable;
   private final boolean isFlaky;
   private final boolean isExternal;
@@ -77,13 +80,16 @@ public class TestTargetProperties {
    * Creates test target properties instance. Constructor expects that it will be called only for
    * test configured targets.
    */
-  TestTargetProperties(RuleContext ruleContext, ExecutionInfo executionRequirements) {
+  TestTargetProperties(
+      RuleContext ruleContext,
+      ExecutionInfo executionRequirements,
+      ImmutableMap<String, String> testExecProperties) {
     Rule rule = ruleContext.getRule();
 
     Preconditions.checkState(TargetUtils.isTestRule(rule));
     size = TestSize.getTestSize(rule);
     timeout = TestTimeout.getTestTimeout(rule);
-    tags = ruleContext.attributes().get("tags", Type.STRING_LIST);
+    tags = ImmutableList.copyOf(ruleContext.attributes().get("tags", Type.STRING_LIST));
 
     // We need to use method on ruleConfiguredTarget to perform validation.
     isFlaky = ruleContext.attributes().get("flaky", Type.BOOLEAN);
@@ -91,6 +97,7 @@ public class TestTargetProperties {
 
     Map<String, String> executionInfo = Maps.newLinkedHashMap();
     executionInfo.putAll(TargetUtils.getExecutionInfo(rule));
+    executionInfo.putAll(testExecProperties);
 
     boolean incompatibleExclusiveTestSandboxed = false;
 
@@ -129,6 +136,27 @@ public class TestTargetProperties {
             && !executionInfo.containsKey(ExecutionRequirements.NO_REMOTE_EXEC);
 
     language = TargetUtils.getRuleLanguage(rule);
+  }
+
+  private TestTargetProperties(
+      TestSize size,
+      TestTimeout timeout,
+      ImmutableList<String> tags,
+      boolean isFlaky,
+      boolean isExternal,
+      TestConfiguration testConfiguration,
+      ImmutableMap<String, String> executionInfo,
+      boolean isRemotable,
+      String language) {
+    this.size = size;
+    this.timeout = timeout;
+    this.tags = tags;
+    this.isFlaky = isFlaky;
+    this.isExternal = isExternal;
+    this.testConfiguration = testConfiguration;
+    this.executionInfo = executionInfo;
+    this.isRemotable = isRemotable;
+    this.language = language;
   }
 
   public TestSize getSize() {
@@ -236,5 +264,41 @@ public class TestTargetProperties {
 
   public String getLanguage() {
     return language;
+  }
+
+  private static final Pattern SHARD_EXEC_INFO = Pattern.compile("(.*)\\.run\\[(\\d+)%\\]$");
+
+  /**
+   * Returns a copy of this {@link TestTargetProperties}, but with execution info potentially
+   * filtered based on the run id and count.
+   */
+  public TestTargetProperties filterForRun(int run, int totalRuns) {
+    ImmutableMap.Builder<String, String> filteredExecutionInfo = new ImmutableMap.Builder<>();
+    for (Map.Entry<String, String> entry : executionInfo.entrySet()) {
+      Matcher matcher = SHARD_EXEC_INFO.matcher(entry.getKey());
+      if (matcher.find()) {
+        // Filter out based on the run count.
+        String propName = matcher.group(1);
+        int percent = Integer.parseInt(matcher.group(2));
+        String propValue = entry.getValue();
+
+        // Only include the filtered name if the check passes
+        if ((run * 100 / totalRuns) <= percent) {
+          filteredExecutionInfo.put(propName, propValue);
+        }
+      } else {
+        filteredExecutionInfo.put(entry);
+      }
+    }
+    return new TestTargetProperties(
+        size,
+        timeout,
+        tags,
+        isFlaky,
+        isExternal,
+        testConfiguration,
+        filteredExecutionInfo.build(),
+        isRemotable,
+        language);
   }
 }

@@ -16,7 +16,6 @@ package com.google.devtools.build.lib.analysis.test;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.devtools.build.lib.actions.ActionAnalysisMetadata.mergeMaps;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
@@ -624,8 +623,7 @@ public class TestRunnerAction extends AbstractAction
   }
 
   @VisibleForTesting
-  static boolean shouldCacheResult(
-      TriState cacheTestResults, boolean isExternal, int runsPerTest) {
+  static boolean shouldCacheResult(TriState cacheTestResults, boolean isExternal, int runsPerTest) {
     if (isExternal || cacheTestResults == TriState.NO) {
       return false;
     }
@@ -926,7 +924,7 @@ public class TestRunnerAction extends AbstractAction
 
   @Override
   public ImmutableMap<String, String> getExecutionInfo() {
-    return mergeMaps(super.getExecutionInfo(), testProperties.getExecutionInfo());
+    return testProperties.getExecutionInfo();
   }
 
   public TestTargetExecutionSettings getExecutionSettings() {
