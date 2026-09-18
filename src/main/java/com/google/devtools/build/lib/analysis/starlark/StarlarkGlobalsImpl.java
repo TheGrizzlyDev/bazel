@@ -20,7 +20,6 @@ import com.google.devtools.build.lib.analysis.DefaultInfo;
 import com.google.devtools.build.lib.analysis.MaterializedDepsInfo;
 import com.google.devtools.build.lib.analysis.OutputGroupInfo;
 import com.google.devtools.build.lib.analysis.RunEnvironmentInfo;
-import com.google.devtools.build.lib.analysis.test.PersistentTestInfo;
 import com.google.devtools.build.lib.bazel.bzlmod.ModuleFileGlobals;
 import com.google.devtools.build.lib.collect.nestedset.Depset;
 import com.google.devtools.build.lib.packages.BuildGlobals;
@@ -103,7 +102,6 @@ public final class StarlarkGlobalsImpl implements StarlarkGlobals {
     env.put("Actions", ActionsProvider.INSTANCE);
     env.put("DefaultInfo", DefaultInfo.PROVIDER);
     env.put("RunEnvironmentInfo", RunEnvironmentInfo.PROVIDER);
-    env.put("PersistentTestInfo", PersistentTestInfo.PROVIDER);
     env.put("MaterializedDepsInfo", MaterializedDepsInfo.PROVIDER);
 
     return env.buildOrThrow();

@@ -18,6 +18,7 @@ import com.google.devtools.build.lib.analysis.RunEnvironmentInfo;
 import com.google.devtools.build.lib.analysis.starlark.StarlarkRuleClassFunctions;
 import com.google.devtools.build.lib.analysis.starlark.StarlarkRuleClassFunctions.StarlarkRuleFunction;
 import com.google.devtools.build.lib.analysis.test.ExecutionInfo;
+import com.google.devtools.build.lib.analysis.test.PersistentTestInfo;
 import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.cmdline.PackageIdentifier;
 import com.google.devtools.build.lib.events.EventKind;
@@ -44,6 +45,11 @@ public class StarlarkTestingModule implements TestingModuleApi {
   @Override
   public ExecutionInfo.ExecutionInfoProvider executionInfo() {
     return ExecutionInfo.PROVIDER;
+  }
+
+  @Override
+  public PersistentTestInfo.PersistentTestInfoProvider persistentTestInfo() {
+    return PersistentTestInfo.PROVIDER;
   }
 
   @Override

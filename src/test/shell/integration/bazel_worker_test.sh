@@ -942,7 +942,7 @@ def _persistent_test_impl(ctx):
     test_args.add(file2)
 
     # Create PersistentTestInfo provider
-    persistent_info = PersistentTestInfo(
+    persistent_info = testing.PersistentTestInfo(
         ctx = ctx,
         multiplex = False,
         requires_worker_protocol = "$WORKER_PROTOCOL",

@@ -44,6 +44,15 @@ public interface TestingModuleApi extends StarlarkValue {
   ExecutionInfoApi.ExecutionInfoApiProvider executionInfo() throws EvalException;
 
   @StarlarkMethod(
+      name = "PersistentTestInfo",
+      doc =
+          "<a href='../providers/PersistentTestInfo.html'>testing.PersistentTestInfo</a>"
+              + " provider key/constructor. Rules can probe for availability with"
+              + " <code>hasattr(testing, \"PersistentTestInfo\")</code>.",
+      structField = true)
+  PersistentTestInfoApi.PersistentTestInfoApiProvider persistentTestInfo() throws EvalException;
+
+  @StarlarkMethod(
       name = "TestEnvironment",
       doc =
           "<b>Deprecated: Use RunEnvironmentInfo instead.</b> Creates a new test environment "
