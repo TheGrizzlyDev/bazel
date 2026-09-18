@@ -1,4 +1,5 @@
 // Copyright 2014 The Bazel Authors. All rights reserved.
+
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -187,11 +188,6 @@ public class StandaloneTestStrategy extends TestStrategy {
       if (persistentTestInfo.getWorkerExecutable() != null
           || persistentTestInfo.getWorkerTools() != null) {
         spawnTools = toolsBuilder.build();
-      }
-
-      // Use test inputs if provided
-      if (persistentTestInfo.getTestInputs() != null) {
-        spawnInputs = persistentTestInfo.getTestInputs();
       }
     }
 

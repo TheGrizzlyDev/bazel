@@ -279,14 +279,19 @@ public final class PersistentTestInfo extends NativeInfo implements PersistentTe
         }
       }
 
-      // Validate and extract test inputs
+      // Validate and extract test inputs. Treat an empty sequence/depset as
+      // "unset" so callers can pass the empty default without inadvertently
+      // clobbering the action's real input closure downstream.
       NestedSet<Artifact> testInputsSet = null;
-      if (testInputsUnchecked != null) {
-        if (testInputsUnchecked instanceof Sequence) {
-          Sequence<Artifact> inputs = Sequence.cast(testInputsUnchecked, Artifact.class, "inputs");
+      if (testInputsUnchecked instanceof Sequence) {
+        Sequence<Artifact> inputs = Sequence.cast(testInputsUnchecked, Artifact.class, "inputs");
+        if (!inputs.isEmpty()) {
           testInputsSet = NestedSetBuilder.wrap(Order.STABLE_ORDER, inputs);
-        } else {
-          testInputsSet = Depset.cast(testInputsUnchecked, Artifact.class, "inputs");
+        }
+      } else if (testInputsUnchecked != null) {
+        NestedSet<Artifact> asDepset = Depset.cast(testInputsUnchecked, Artifact.class, "inputs");
+        if (!asDepset.isEmpty()) {
+          testInputsSet = asDepset;
         }
       }
 

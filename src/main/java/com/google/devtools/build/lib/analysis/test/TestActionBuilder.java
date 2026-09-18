@@ -391,6 +391,20 @@ public final class TestActionBuilder {
 
     NestedSet<Artifact> tools = toolsBuilder.build();
     inputsBuilder.addTransitive(tools);
+    // PersistentTestInfo artifacts must be action inputs so the metadata
+    // provider (built from the action's inputs) can resolve them at spawn
+    // time — WorkerFilesHash relies on that lookup.
+    if (persistentTestInfo != null) {
+      if (persistentTestInfo.getWorkerExecutable() != null) {
+        inputsBuilder.addTransitive(persistentTestInfo.getWorkerExecutable().getFilesToRun());
+      }
+      if (persistentTestInfo.getWorkerTools() != null) {
+        inputsBuilder.addTransitive(persistentTestInfo.getWorkerTools());
+      }
+      if (persistentTestInfo.getTestInputs() != null) {
+        inputsBuilder.addTransitive(persistentTestInfo.getTestInputs());
+      }
+    }
     NestedSet<Artifact> inputs = inputsBuilder.build();
     int shardRuns = (shardCount > 0 ? shardCount : 1);
     List<Artifact.DerivedArtifact> results =
