@@ -261,7 +261,6 @@ public abstract class TestStrategy implements TestActionContext {
     // Execute the test using the alias in the runfiles tree, as mandated by the Test Encyclopedia.
     // Do not use getCallablePathStringForOs as tw.exe expects a path with forward slashes.
     args.add(execSettings.getExecutable().getRunfilesPath().getCallablePathString());
-    Iterables.addAll(args, execSettings.getArgs().arguments());
 
     // Check if test uses PersistentTestInfo with custom arguments
     PersistentTestInfo persistentTestInfo = testAction.getPersistentTestInfo();
@@ -295,7 +294,13 @@ public abstract class TestStrategy implements TestActionContext {
                   PathMapper.NOOP,
                   CommandLineLimits.UNLIMITED);
 
-      List<String> persistentTestArgs = expandedTestArgs.arguments();
+      // Rule args and --test_arg vary per test and must not enter the WorkerKey.
+      // The provider supplies any separator required by its runner.
+      List<String> persistentTestArgs =
+          ImmutableList.<String>builder()
+              .addAll(expandedTestArgs.arguments())
+              .addAll(execSettings.getArgs().arguments())
+              .build();
 
       // If we have execution context, create a paramfile for test args
       if (actionExecutionContext != null && !persistentTestArgs.isEmpty()) {
@@ -307,7 +312,7 @@ public abstract class TestStrategy implements TestActionContext {
         // Create paramfile with persistent test arguments (DO NOT materialize it here)
         ParamFileActionInput paramFile =
             new ParamFileActionInput(
-                paramFilePath, persistentTestArgs, ParameterFileType.SHELL_QUOTED);
+                paramFilePath, persistentTestArgs, ParameterFileType.UNQUOTED);
 
         args.add("@" + paramFilePath);
 
@@ -322,6 +327,8 @@ public abstract class TestStrategy implements TestActionContext {
         // No execution context (introspection mode) - add args directly
         args.addAll(persistentTestArgs);
       }
+    } else {
+      Iterables.addAll(args, execSettings.getArgs().arguments());
     }
 
     return ExpandedTestArgs.of(args);

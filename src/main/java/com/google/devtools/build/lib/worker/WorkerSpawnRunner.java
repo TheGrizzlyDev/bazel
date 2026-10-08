@@ -333,7 +333,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
       throws IOException, InterruptedException {
     WorkRequest.Builder requestBuilder = WorkRequest.newBuilder();
     for (String flagfile : flagfiles) {
-      expandArgument(inputFiles, flagfile, requestBuilder);
+      expandArgument(inputFiles, flagfile, requestBuilder, isPersistentTestSpawn(spawn));
     }
 
     List<ActionInput> inputs =
@@ -403,7 +403,18 @@ final class WorkerSpawnRunner implements SpawnRunner {
    */
   static void expandArgument(SandboxInputs inputs, String arg, WorkRequest.Builder requestBuilder)
       throws IOException, InterruptedException {
-    if (arg.startsWith("@") && !arg.startsWith("@@") && !isExternalRepositoryLabel(arg)) {
+    expandArgument(inputs, arg, requestBuilder, false);
+  }
+
+  /** Expands test request files only before the runner's test-argument separator. */
+  @VisibleForTesting
+  static void expandArgument(
+      SandboxInputs inputs, String arg, WorkRequest.Builder requestBuilder, boolean testRequest)
+      throws IOException, InterruptedException {
+    if (arg.startsWith("@")
+        && !arg.startsWith("@@")
+        && !isExternalRepositoryLabel(arg)
+        && !(testRequest && requestBuilder.getArgumentsList().contains("--"))) {
       if (Thread.interrupted()) {
         throw new InterruptedException();
       }
@@ -416,7 +427,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
       }
       try {
         for (String line : FileSystemUtils.readLines(path, UTF_8)) {
-          expandArgument(inputs, line, requestBuilder);
+          expandArgument(inputs, line, requestBuilder, testRequest);
         }
       } catch (IOException e) {
         throw new IOException(

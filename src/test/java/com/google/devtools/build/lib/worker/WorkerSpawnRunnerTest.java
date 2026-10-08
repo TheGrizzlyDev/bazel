@@ -129,7 +129,8 @@ public class WorkerSpawnRunnerTest {
             SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
             ImmutableList.of(),
             inputFileCache,
-            spawnMetrics);
+            spawnMetrics,
+            ImmutableMap.of());
 
     assertThat(response).isNotNull();
     assertThat(response.getExitCode()).isEqualTo(0);
@@ -187,7 +188,8 @@ public class WorkerSpawnRunnerTest {
             sandboxHelper.getSandboxOutputs(),
             ImmutableList.of(),
             inputFileCache,
-            spawnMetrics);
+            spawnMetrics,
+            ImmutableMap.of());
 
     assertThat(response).isNotNull();
     assertThat(response.getExitCode()).isEqualTo(0);
@@ -220,7 +222,8 @@ public class WorkerSpawnRunnerTest {
                 SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
                 ImmutableList.of(),
                 inputFileCache,
-                spawnMetrics));
+                spawnMetrics,
+                ImmutableMap.of()));
     assertThat(logFile.exists()).isFalse();
     verify(context).report(SpawnExecutingEvent.create("worker"));
     verify(worker).putRequest(WorkRequest.newBuilder().setRequestId(0).build());
@@ -262,7 +265,8 @@ public class WorkerSpawnRunnerTest {
                 SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
                 ImmutableList.of(),
                 inputFileCache,
-                spawnMetrics));
+                spawnMetrics,
+                ImmutableMap.of()));
     secondResponseRequested.acquire();
     assertThat(logFile.exists()).isFalse();
     verify(context).report(SpawnExecutingEvent.create("worker"));
@@ -337,7 +341,8 @@ public class WorkerSpawnRunnerTest {
                 SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
                 ImmutableList.of(),
                 inputFileCache,
-                spawnMetrics));
+                spawnMetrics,
+                ImmutableMap.of()));
     secondResponseRequested.acquire();
     assertThat(logFile.exists()).isFalse();
     verify(context).report(SpawnExecutingEvent.create("worker"));
@@ -387,7 +392,8 @@ public class WorkerSpawnRunnerTest {
                 SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
                 ImmutableList.of(),
                 inputFileCache,
-                spawnMetrics));
+                spawnMetrics,
+                ImmutableMap.of()));
 
     assertThat(logFile.exists()).isFalse();
     verify(context).report(SpawnExecutingEvent.create("worker"));
@@ -419,7 +425,8 @@ public class WorkerSpawnRunnerTest {
             SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
             ImmutableList.of(),
             inputFileCache,
-            spawnMetrics);
+            spawnMetrics,
+            ImmutableMap.of());
 
     assertThat(response).isNotNull();
     assertThat(response.getExitCode()).isEqualTo(0);
@@ -456,7 +463,8 @@ public class WorkerSpawnRunnerTest {
                     SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
                     ImmutableList.of(),
                     inputFileCache,
-                    spawnMetrics));
+                    spawnMetrics,
+                    ImmutableMap.of()));
 
     assertThat(execException).hasMessageThat().contains(exceptionText);
     if (!recordedResponse.isEmpty()) {
@@ -519,6 +527,27 @@ public class WorkerSpawnRunnerTest {
     WorkerSpawnRunner.expandArgument(inputs, "@file", requestBuilder);
     assertThat(requestBuilder.getArgumentsList())
         .containsExactly("arg1", "@@nonfile", "@foo//bar", "arg2");
+  }
+
+  @Test
+  public void testExpandArgument_testRequestPreservesArgumentsAfterSeparator() throws Exception {
+    WorkRequest.Builder requestBuilder = WorkRequest.newBuilder();
+    FileSystemUtils.writeIsoLatin1(
+        fs.getPath("/file"), "@options\n--\n@missing-file\n@@literal\nspace value\n'quote'\n\nlast");
+    FileSystemUtils.writeIsoLatin1(fs.getPath("/options"), "--config=config.pb");
+    SandboxInputs inputs =
+        new SandboxInputs(
+            ImmutableMap.of(
+                PathFragment.create("file"), fs.getPath("/file"),
+                PathFragment.create("options"), fs.getPath("/options")),
+            ImmutableMap.of(),
+            ImmutableMap.of());
+    WorkerSpawnRunner.expandArgument(inputs, "@file", requestBuilder, true);
+    assertThat(requestBuilder.getArgumentsList())
+        .containsExactly(
+            "--config=config.pb", "--", "@missing-file", "@@literal", "space value", "'quote'",
+            "", "last")
+        .inOrder();
   }
 
   @Test

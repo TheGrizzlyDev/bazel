@@ -95,20 +95,24 @@ for var in "$@"; do
     if [[ -e "${paramfile}" ]]; then
       # Fix any file references in the paramfile to also be absolute
       replacement_paramfile="$(mktemp)"
-      for line in $(cat "${paramfile}"); do
-        if [[ -e "${line}" ]]; then
-          echo "$(pwd)/${line}" >> "${replacement_paramfile}"
+      after_separator=false
+      while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${after_separator}" == false && -e "${line}" ]] && ! is_absolute "${line}"; then
+          printf '%s\n' "$PWD/${line}" >> "${replacement_paramfile}"
         else
-          echo "${line}" >> "${replacement_paramfile}"
+          printf '%s\n' "${line}" >> "${replacement_paramfile}"
         fi
-      done
+        if [[ "${line}" == "--" ]]; then
+          after_separator=true
+        fi
+      done < "${paramfile}"
       cat "${replacement_paramfile}" > "${paramfile}"
       rm "${replacement_paramfile}"
 
       var="@$(pwd)/${paramfile}"
     fi
   fi
-  updated_args+=(${var})
+  updated_args+=("${var}")
 done
 set -- "${updated_args[@]}"
 

@@ -58,6 +58,7 @@ public final class TestTargetExecutionSettings {
   TestTargetExecutionSettings(
       RuleContext ruleContext,
       RunfilesSupport runfilesSupport,
+      CommandLine targetArgs,
       Artifact executable,
       Artifact instrumentedFileManifest,
       int shards,
@@ -68,7 +69,6 @@ public final class TestTargetExecutionSettings {
     BuildConfigurationValue config = ruleContext.getConfiguration();
     TestConfiguration testConfig = config.getFragment(TestConfiguration.class);
 
-    CommandLine targetArgs = runfilesSupport.getArgs();
     testArguments =
         CommandLine.concat(targetArgs, ImmutableList.copyOf(testConfig.getTestArguments()));
 

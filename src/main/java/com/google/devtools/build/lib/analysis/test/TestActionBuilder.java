@@ -27,6 +27,7 @@ import com.google.devtools.build.lib.actions.ActionInputHelper;
 import com.google.devtools.build.lib.actions.ActionOwner;
 import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.ArtifactRoot;
+import com.google.devtools.build.lib.actions.CommandLine;
 import com.google.devtools.build.lib.analysis.AnalysisEnvironment;
 import com.google.devtools.build.lib.analysis.FilesToRunProvider;
 import com.google.devtools.build.lib.analysis.PlatformConfiguration;
@@ -80,6 +81,7 @@ public final class TestActionBuilder {
   private final RuleContext ruleContext;
   private final ImmutableList.Builder<Artifact> additionalTools;
   private RunfilesSupport runfilesSupport;
+  @Nullable private CommandLine testArguments;
   private Artifact executable;
   private ExecutionInfo executionRequirements;
   private InstrumentedFilesInfo instrumentedFiles;
@@ -124,6 +126,12 @@ public final class TestActionBuilder {
     Preconditions.checkNotNull(provider.getExecutable());
     this.runfilesSupport = provider.getRunfilesSupport();
     this.executable = provider.getExecutable();
+    return this;
+  }
+
+  @CanIgnoreReturnValue
+  public TestActionBuilder setTestArguments(CommandLine testArguments) {
+    this.testArguments = testArguments;
     return this;
   }
 
@@ -362,6 +370,7 @@ public final class TestActionBuilder {
           new TestTargetExecutionSettings(
               ruleContext,
               runfilesSupport,
+              testArguments != null ? testArguments : runfilesSupport.getArgs(),
               executable,
               instrumentedFileManifest,
               shardCount,
@@ -375,6 +384,7 @@ public final class TestActionBuilder {
           new TestTargetExecutionSettings(
               ruleContext,
               runfilesSupport,
+              testArguments != null ? testArguments : runfilesSupport.getArgs(),
               executable,
               null,
               shardCount,
