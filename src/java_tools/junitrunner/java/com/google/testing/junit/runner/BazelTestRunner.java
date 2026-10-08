@@ -80,27 +80,7 @@ public class BazelTestRunner {
    */
   public static void main(String[] args) {
     PrintStream stderr = System.err;
-
-    // Install signal handlers early to ensure stack traces are printed even if the test
-    // is interrupted during suite creation.
-    installSignalHandlers(stderr);
-
-    String suiteClassName = System.getProperty(TEST_SUITE_PROPERTY_NAME);
-    if (!checkTestSuiteProperty(suiteClassName)) {
-      System.exit(EXIT_CODE_TEST_RUNNER_FAILURE);
-    }
-
-    int exitCode;
-    try {
-      exitCode = runTestsInSuite(suiteClassName, args);
-    } catch (Throwable e) {
-      // An exception was thrown by the runner. Print the error to the output stream so it will be
-      // logged
-      // by the executing strategy, and return a failure, so this process can gracefully shut down.
-      e.printStackTrace();
-      exitCode =
-          e instanceof OutOfMemoryError ? EXIT_CODE_TEST_FAILURE_OOM : EXIT_CODE_TEST_FAILURE_OTHER;
-    }
+    int exitCode = runTests(args);
 
     System.err.printf("%nBazelTestRunner exiting with a return value of %d%n", exitCode);
     System.err.println("JVM shutdown hooks (if any) will run now.");
@@ -115,6 +95,28 @@ public class BazelTestRunner {
     String formattedShutdownTime = format.format(shutdownTime);
     System.err.printf("-- JVM shutdown starting at %s --%n%n", formattedShutdownTime);
     System.exit(exitCode);
+  }
+
+  /**
+   * Runs one suite and returns its result without terminating the JVM.
+   *
+   * <p>Persistent test workers deliberately retain application state across calls. The caller
+   * supplies the current suite property and per-test execution context.
+   */
+  public static int runTests(String[] args) {
+    installSignalHandlers(System.err);
+    String suiteClassName = System.getProperty(TEST_SUITE_PROPERTY_NAME);
+    if (!checkTestSuiteProperty(suiteClassName)) {
+      return EXIT_CODE_TEST_RUNNER_FAILURE;
+    }
+    try {
+      return runTestsInSuite(suiteClassName, args);
+    } catch (Throwable e) {
+      e.printStackTrace();
+      return e instanceof OutOfMemoryError
+          ? EXIT_CODE_TEST_FAILURE_OOM
+          : EXIT_CODE_TEST_FAILURE_OTHER;
+    }
   }
 
   /**

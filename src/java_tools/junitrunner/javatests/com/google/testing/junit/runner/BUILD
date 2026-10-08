@@ -15,7 +15,7 @@ java_library(
     testonly = 1,
     srcs = glob(
         ["**/*.java"],
-        exclude = ["testbed/*.java"],
+        exclude = ["testbed/*.java", "ReturningRunnerTest.java"],
     ),
     javacopts = [
     ],
@@ -55,7 +55,7 @@ java_binary(
 
 java_test(
     name = "AllTests",
-    args = glob(["**/*Test.java"]),
+    args = glob(["**/*Test.java"], exclude = ["ReturningRunnerTest.java"]),
     main_class = "com.google.testing.junit.runner.TestRunner",
     use_testrunner = 0,
     runtime_deps = [":tests"],
@@ -210,3 +210,15 @@ exports_files([
     "deploy_jar_integration_tests.sh",
     "system_exit_detecting_test.sh",
 ])
+
+java_test(
+    name = "ReturningRunnerTest",
+    size = "small",
+    srcs = ["ReturningRunnerTest.java"],
+    main_class = "com.google.testing.junit.runner.ReturningRunnerTest",
+    use_testrunner = False,
+    deps = [
+        "//src/java_tools/junitrunner/java/com/google/testing/junit/runner:test_runner",
+        "//third_party/java/junit",
+    ],
+)
