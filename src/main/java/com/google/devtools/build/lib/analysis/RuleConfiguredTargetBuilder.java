@@ -496,6 +496,8 @@ public final class RuleConfiguredTargetBuilder {
     if (persistentTestInfo != null && persistentTestInfo.getWorkerExecutable() != null) {
       // Keep the test's rule args before replacing its runfiles with the coordinator's.
       testActionBuilder.setTestArguments(filesToRunProvider.getRunfilesSupport().getArgs());
+      testActionBuilder.setTestEnvironment(
+          filesToRunProvider.getRunfilesSupport().getActionEnvironment());
       filesToRunProvider = persistentTestInfo.getWorkerExecutable();
     }
     TestParams testParams =

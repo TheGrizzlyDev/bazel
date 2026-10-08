@@ -22,6 +22,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.devtools.build.lib.actions.ActionEnvironment;
 import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.ActionInputHelper;
 import com.google.devtools.build.lib.actions.ActionOwner;
@@ -82,6 +83,7 @@ public final class TestActionBuilder {
   private final ImmutableList.Builder<Artifact> additionalTools;
   private RunfilesSupport runfilesSupport;
   @Nullable private CommandLine testArguments;
+  @Nullable private ActionEnvironment testEnvironment;
   private Artifact executable;
   private ExecutionInfo executionRequirements;
   private InstrumentedFilesInfo instrumentedFiles;
@@ -132,6 +134,12 @@ public final class TestActionBuilder {
   @CanIgnoreReturnValue
   public TestActionBuilder setTestArguments(CommandLine testArguments) {
     this.testArguments = testArguments;
+    return this;
+  }
+
+  @CanIgnoreReturnValue
+  public TestActionBuilder setTestEnvironment(ActionEnvironment testEnvironment) {
+    this.testEnvironment = testEnvironment;
     return this;
   }
 
@@ -489,7 +497,7 @@ public final class TestActionBuilder {
                 undeclaredOutputsDir,
                 testProperties,
                 ImmutableMap.copyOf(coverageTestEnv),
-                runfilesSupport.getActionEnvironment(),
+                testEnvironment != null ? testEnvironment : runfilesSupport.getActionEnvironment(),
                 executionSettings,
                 shard,
                 run,
