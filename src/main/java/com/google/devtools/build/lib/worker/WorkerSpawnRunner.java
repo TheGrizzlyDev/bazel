@@ -96,7 +96,11 @@ final class WorkerSpawnRunner implements SpawnRunner {
           "XML_OUTPUT_FILE",
           "RUNTEST_PRESERVE_CWD",
           "IS_COVERAGE_SPAWN",
-          "RUNFILES_MANIFEST_ONLY");
+          "RUNFILES_MANIFEST_ONLY",
+          "RUNFILES_MANIFEST_FILE",
+          "RUNFILES_DIR",
+          "JAVA_RUNFILES",
+          "PYTHON_RUNFILES");
 
   /**
    * The verbosity level implied by `--worker_verbose`. This value allows for manually setting some

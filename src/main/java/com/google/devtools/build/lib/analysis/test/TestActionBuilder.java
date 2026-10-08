@@ -131,6 +131,13 @@ public final class TestActionBuilder {
     return this;
   }
 
+  /** Replaces only the executable, preserving the test's runfiles and execution context. */
+  @CanIgnoreReturnValue
+  public TestActionBuilder setTestExecutable(Artifact executable) {
+    this.executable = Preconditions.checkNotNull(executable);
+    return this;
+  }
+
   @CanIgnoreReturnValue
   public TestActionBuilder setTestArguments(CommandLine testArguments) {
     this.testArguments = testArguments;

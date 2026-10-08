@@ -47,6 +47,7 @@ public final class TestTargetExecutionSettings {
   private final RunUnder runUnder;
   private final Artifact runUnderExecutable;
   private final Artifact executable;
+  private final Artifact originalExecutable;
   private final boolean runfilesSymlinksCreated;
   @Nullable private final Path runfilesDir;
   private final Runfiles runfiles;
@@ -80,6 +81,7 @@ public final class TestTargetExecutionSettings {
     this.testFilter = testConfig.getTestFilter();
     this.testRunnerFailFast = testConfig.getTestRunnerFailFast();
     this.executable = executable;
+    this.originalExecutable = runfilesSupport.getExecutable();
     this.runfilesSymlinksCreated = runfilesSupport.getRunfilesTree().isBuildRunfileLinks();
     this.runfilesDir = runfilesSupport.getRunfilesDirectory();
     this.runfiles = runfilesSupport.getRunfiles();
@@ -126,6 +128,11 @@ public final class TestTargetExecutionSettings {
 
   public Artifact getExecutable() {
     return executable;
+  }
+
+  /** Returns the original test executable, before any persistent coordinator substitution. */
+  public Artifact getOriginalExecutable() {
+    return originalExecutable;
   }
 
   /** Returns whether or not the runfiles symlinks were created. */

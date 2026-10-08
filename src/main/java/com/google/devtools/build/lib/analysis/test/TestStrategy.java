@@ -26,8 +26,8 @@ import com.google.common.collect.Sets;
 import com.google.devtools.build.lib.actions.ActionExecutionContext;
 import com.google.devtools.build.lib.actions.ActionOwner;
 import com.google.devtools.build.lib.actions.Artifact;
-import com.google.devtools.build.lib.actions.CommandLineLimits;
 import com.google.devtools.build.lib.actions.CommandLineExpansionException;
+import com.google.devtools.build.lib.actions.CommandLineLimits;
 import com.google.devtools.build.lib.actions.CommandLines.ExpandedCommandLines;
 import com.google.devtools.build.lib.actions.ExecException;
 import com.google.devtools.build.lib.actions.ParamFileActionInput;
@@ -85,8 +85,10 @@ public abstract class TestStrategy implements TestActionContext {
       return new ExpandedTestArgs(ImmutableList.copyOf(arguments), ImmutableList.of());
     }
 
-    public static ExpandedTestArgs of(List<String> arguments, List<ParamFileActionInput> paramFiles) {
-      return new ExpandedTestArgs(ImmutableList.copyOf(arguments), ImmutableList.copyOf(paramFiles));
+    public static ExpandedTestArgs of(
+        List<String> arguments, List<ParamFileActionInput> paramFiles) {
+      return new ExpandedTestArgs(
+          ImmutableList.copyOf(arguments), ImmutableList.copyOf(paramFiles));
     }
   }
 
@@ -311,8 +313,7 @@ public abstract class TestStrategy implements TestActionContext {
 
         // Create paramfile with persistent test arguments (DO NOT materialize it here)
         ParamFileActionInput paramFile =
-            new ParamFileActionInput(
-                paramFilePath, persistentTestArgs, ParameterFileType.UNQUOTED);
+            new ParamFileActionInput(paramFilePath, persistentTestArgs, ParameterFileType.UNQUOTED);
 
         args.add("@" + paramFilePath);
 
@@ -430,7 +431,7 @@ public abstract class TestStrategy implements TestActionContext {
 
   public static String getTmpDirName(TestRunnerAction action) {
     Fingerprint digest = new Fingerprint();
-    digest.addPath(action.getExecutionSettings().getExecutable().getExecPath());
+    digest.addPath(action.getExecutionSettings().getOriginalExecutable().getExecPath());
     digest.addInt(action.getShardNum());
     digest.addInt(action.getRunNumber());
     // Truncate the string to 32 character to avoid exceeding path length limit on Windows and macOS

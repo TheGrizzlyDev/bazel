@@ -486,28 +486,25 @@ public final class RuleConfiguredTargetBuilder {
     }
     TestActionBuilder testActionBuilder =
         new TestActionBuilder(ruleContext)
+            .setFilesToRunProvider(filesToRunProvider)
             .setInstrumentedFiles(
                 (InstrumentedFilesInfo)
                     providersBuilder.getProvider(
                         InstrumentedFilesInfo.STARLARK_CONSTRUCTOR.getKey()));
 
-    PersistentTestInfo persistentTestInfo = (PersistentTestInfo)
-            providersBuilder.getProvider(PersistentTestInfo.PROVIDER.getKey());
+    PersistentTestInfo persistentTestInfo =
+        (PersistentTestInfo) providersBuilder.getProvider(PersistentTestInfo.PROVIDER.getKey());
     if (persistentTestInfo != null && persistentTestInfo.getWorkerExecutable() != null) {
-      // Keep the test's rule args before replacing its runfiles with the coordinator's.
-      testActionBuilder.setTestArguments(filesToRunProvider.getRunfilesSupport().getArgs());
-      testActionBuilder.setTestEnvironment(
-          filesToRunProvider.getRunfilesSupport().getActionEnvironment());
-      filesToRunProvider = persistentTestInfo.getWorkerExecutable();
+      // Only the executable changes. Runfiles, rule arguments, and the action
+      // environment continue to belong to the original test target.
+      testActionBuilder.setTestExecutable(persistentTestInfo.getWorkerExecutable().getExecutable());
     }
     TestParams testParams =
         testActionBuilder
-            .setFilesToRunProvider(filesToRunProvider)
             .addTools(additionalTestActionTools.build())
             .setExecutionRequirements(
                 (ExecutionInfo) providersBuilder.getProvider(ExecutionInfo.PROVIDER.getKey()))
-            .setPersistentTestInfo(
-                    persistentTestInfo)
+            .setPersistentTestInfo(persistentTestInfo)
             .build();
     return new TestProvider(testParams);
   }

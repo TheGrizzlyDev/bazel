@@ -758,7 +758,7 @@ public class TestRunnerAction extends AbstractAction
     env.put(
         "TEST_BINARY",
         getExecutionSettings()
-            .getExecutable()
+            .getOriginalExecutable()
             .getRunfilesPath()
             .getCallablePathStringForOs(executionSettings.getExecutionOs()));
 
