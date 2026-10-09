@@ -95,6 +95,13 @@ final class WorkerSpawnRunner implements SpawnRunner {
   private static final ImmutableList<String> TEST_SPECIFIC_ENV_VARS =
       ImmutableList.of(
           "XML_OUTPUT_FILE",
+          "JAVA_COVERAGE_FILE",
+          "JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE",
+          "JACOCO_METADATA_JAR",
+          "JACOCO_MAIN_CLASS",
+          "JACOCO_JAVA_RUNFILES_ROOT",
+          "JACOCO_IS_JAR_WRAPPED",
+          "CLASSPATH_JAR",
           "RUNTEST_PRESERVE_CWD",
           "IS_COVERAGE_SPAWN",
           "RUNFILES_MANIFEST_ONLY",

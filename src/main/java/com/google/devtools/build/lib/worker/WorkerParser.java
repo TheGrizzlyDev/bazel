@@ -220,18 +220,19 @@ public class WorkerParser {
    *
    * <p>For persistent test workers, TestStrategy.expandedArgsFromAction() includes test
    * infrastructure that should not be used to start the worker process:
+   *
    * <ul>
    *   <li>test-setup.sh - wrapper script for single-shot execution (first argument)
    *   <li>coverage script - only for single-shot coverage collection (conditional)
    *   <li>run_under wrapper - handled by spawn execution, not worker (conditional)
    * </ul>
    *
-   * <p>After stripping, the arguments should start with the worker executable, followed by
-   * any persistent test argument flagfiles.
+   * <p>After stripping, the arguments should start with the worker executable, followed by any
+   * persistent test argument flagfiles.
    *
-   * <p>The first argument after stripping test-setup.sh is the test executable's runfiles path
-   * (an alias in the runfiles tree). This method replaces it with the actual exec path so the
-   * worker can locate the executable correctly.
+   * <p>The first argument after stripping test-setup.sh is the test executable's runfiles path (an
+   * alias in the runfiles tree). This method replaces it with the actual exec path so the worker
+   * can locate the executable correctly.
    *
    * @param args the original spawn arguments
    * @param spawn the spawn containing the test action with executable artifact
@@ -247,10 +248,24 @@ public class WorkerParser {
       args = args.subList(1, args.size());
     }
 
+    TestRunnerAction testAction = (TestRunnerAction) spawn.getResourceOwner();
+    if (testAction.isCoverageMode() && !args.isEmpty()) {
+      Artifact collector = testAction.getCollectCoverageScript().getExecutable();
+      if (args.get(0)
+          .equals(
+              collector
+                  .getExecPath()
+                  .getCallablePathStringForOs(
+                      testAction.getExecutionSettings().getExecutionOs()))) {
+        // The coordinator collects each dispatch before returning its response.
+        // Bazel still runs the split report-merging spawn after test execution.
+        args = args.subList(1, args.size());
+      }
+    }
+
     // Replace the runfiles alias with the actual exec path
     if (!args.isEmpty()) {
       // Safe cast: isPersistentTestWorkerSpawn() verified mnemonic is "TestRunner"
-      TestRunnerAction testAction = (TestRunnerAction) spawn.getResourceOwner();
       Artifact executable = testAction.getExecutionSettings().getExecutable();
 
       // Get both paths

@@ -130,7 +130,9 @@ fi
 # JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE Exec path of a file that contains the
 #                                     relative paths of the jars on the runtime
 #                                     classpath delimited by newline.
-if [[ ! -z "${JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE}" ]]; then
+# The split post-processing spawn only merges existing reports. Its input tree
+# may be read-only, and metadata merging belongs to the test execution phase.
+if [[ "$IS_COVERAGE_SPAWN" == "0" && -n "${JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE}" ]]; then
   JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE="${PWD}/${JAVA_RUNTIME_CLASSPATH_FOR_COVERAGE}"
   SINGLE_JAR_TOOL="${PWD}/${SINGLE_JAR_TOOL}"
 

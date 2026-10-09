@@ -318,14 +318,20 @@ public class TestRunnerAction extends AbstractAction
       filesToDeleteBuilder.add(testShard);
     }
     this.filesToDeleteBeforeExecution = filesToDeleteBuilder.build();
-    this.directoriesToDeleteBeforeExecution =
-        ImmutableSet.of(
-            // Note that splitLogsPath points to a file inside the splitLogsDir so it's not
-            // necessary to delete it explicitly.
-            splitLogsDir,
-            undeclaredOutputsDir.getExecPath(),
-            undeclaredOutputsAnnotationsDir,
-            baseDir.getRelative("test_attempts"));
+    ImmutableSet.Builder<PathFragment> directoriesToDelete = ImmutableSet.builder();
+    directoriesToDelete.add(
+        // Note that splitLogsPath points to a file inside the splitLogsDir so it's not
+        // necessary to delete it explicitly.
+        splitLogsDir,
+        undeclaredOutputsDir.getExecPath(),
+        undeclaredOutputsAnnotationsDir,
+        baseDir.getRelative("test_attempts"));
+    if (isCoverageMode()) {
+      // Coverage intermediates can be read-only outputs from a previous uncached execution.
+      // Recreate them for this request rather than appending to stale params/data files.
+      directoriesToDelete.add(getCoverageDirectory());
+    }
+    this.directoriesToDeleteBeforeExecution = directoriesToDelete.build();
   }
 
   public boolean allowLocalTests() {
