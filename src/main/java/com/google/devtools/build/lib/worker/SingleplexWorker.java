@@ -28,8 +28,10 @@ import com.google.devtools.build.lib.worker.WorkerProtocol.WorkRequest;
 import com.google.devtools.build.lib.worker.WorkerProtocol.WorkResponse;
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeoutException;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -180,8 +182,22 @@ class SingleplexWorker extends Worker {
 
   @Override
   WorkResponse getResponse(int requestId) throws IOException, InterruptedException {
+    try {
+      return getResponse(requestId, Duration.ZERO);
+    } catch (TimeoutException impossible) {
+      throw new AssertionError(impossible);
+    }
+  }
+
+  @Override
+  WorkResponse getResponse(int requestId, Duration timeout)
+      throws IOException, InterruptedException, TimeoutException {
+    long started = System.nanoTime();
     recordingInputStream.startRecording(4096);
     while (recordingInputStream.available() == 0) {
+      if (!timeout.isZero() && System.nanoTime() - started >= timeout.toNanos()) {
+        throw new TimeoutException("Worker test exceeded " + timeout);
+      }
       Thread.sleep(10);
       if (!process.isAlive()) {
         break;

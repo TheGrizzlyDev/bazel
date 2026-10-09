@@ -42,6 +42,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -71,12 +73,16 @@ public final class WorkerTest {
 
   private TestWorker createTestWorker(byte[] outputStreamBytes, WorkerProtocolFormat protocolFormat)
       throws IOException, InterruptedException, UserExecException {
+    return createTestWorker(new FakeSubprocess(outputStreamBytes), protocolFormat);
+  }
+
+  private TestWorker createTestWorker(
+      FakeSubprocess fakeSubprocess, WorkerProtocolFormat protocolFormat)
+      throws IOException, InterruptedException, UserExecException {
     Preconditions.checkState(
         workerForCleanup == null, "createTestWorker can only be called once per test");
 
     WorkerKey key = WorkerTestUtils.createWorkerKey(protocolFormat, fs);
-
-    FakeSubprocess fakeSubprocess = new FakeSubprocess(outputStreamBytes);
 
     Path workerBaseDir = fs.getPath("/outputbase/bazel-workers");
     int workerId = 1;
@@ -118,6 +124,27 @@ public final class WorkerTest {
     WorkResponse readResponse = testWorker.getResponse(0);
 
     assertThat(readResponse).isEqualTo(response);
+  }
+
+  @Test
+  public void testGetResponse_deadlineExpires() throws Exception {
+    TestWorker testWorker =
+        createTestWorker(
+            new FakeSubprocess(new byte[0]) {
+              @Override
+              public boolean finished() {
+                return false;
+              }
+            },
+            PROTO);
+    assertThrows(TimeoutException.class, () -> testWorker.getResponse(0, Duration.ofMillis(20)));
+  }
+
+  @Test
+  public void testGetResponse_responseBeforeDeadline() throws Exception {
+    WorkResponse response = WorkResponse.newBuilder().setExitCode(1).build();
+    TestWorker testWorker = createTestWorker(serializeResponseToProtoBytes(response), PROTO);
+    assertThat(testWorker.getResponse(0, Duration.ofSeconds(1))).isEqualTo(response);
   }
 
   @Test

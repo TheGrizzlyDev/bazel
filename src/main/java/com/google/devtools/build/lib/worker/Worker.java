@@ -25,9 +25,11 @@ import com.google.devtools.build.lib.vfs.PathFragment;
 import com.google.devtools.build.lib.worker.WorkerProtocol.WorkRequest;
 import com.google.devtools.build.lib.worker.WorkerProtocol.WorkResponse;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.concurrent.TimeoutException;
 import javax.annotation.Nullable;
 
 /**
@@ -129,6 +131,12 @@ public abstract class Worker {
    * @throws InterruptedException If this thread was interrupted, which can also happen during IO.
    */
   abstract WorkResponse getResponse(int requestId) throws IOException, InterruptedException;
+
+  /** Waits for a response with a deadline when supported by this worker implementation. */
+  WorkResponse getResponse(int requestId, Duration timeout)
+      throws IOException, InterruptedException, TimeoutException {
+    return getResponse(requestId);
+  }
 
   /**
    * Does whatever cleanup may be required after execution is done.

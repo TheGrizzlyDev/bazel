@@ -74,6 +74,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -166,7 +167,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
 
   /** Checks if this spawn is a test executing via persistent worker. */
   private static boolean isPersistentTestSpawn(Spawn spawn) {
-    return spawn.getMnemonic().equals("TestRunner") && Spawns.supportsWorkers(spawn);
+    return "TestRunner".equals(spawn.getMnemonic()) && Spawns.supportsWorkers(spawn);
   }
 
   @Override
@@ -208,6 +209,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
     Instant startTime = Instant.now();
     SpawnMetrics.Builder spawnMetrics;
     WorkResponse response;
+    boolean timedOut;
 
     try (SilentCloseable c =
         Profiler.instance()
@@ -287,8 +289,8 @@ final class WorkerSpawnRunner implements SpawnRunner {
       spawnMetrics =
           SpawnMetrics.Builder.forWorkerExec()
               .setInputFiles(inputFiles.getFiles().size() + inputFiles.getSymlinks().size());
-      response =
-          execInWorker(
+      RequestOutcome outcome =
+          execInWorkerWithOutcome(
               spawn,
               key,
               context,
@@ -298,6 +300,8 @@ final class WorkerSpawnRunner implements SpawnRunner {
               inputFileCache,
               spawnMetrics,
               testSpecificEnv);
+      response = outcome.response();
+      timedOut = outcome.timedOut();
 
       FileOutErr outErr = context.getFileOutErr();
       response.getOutputBytes().writeTo(outErr.getErrorStream());
@@ -308,7 +312,8 @@ final class WorkerSpawnRunner implements SpawnRunner {
     SpawnResult.Builder builder =
         getSpawnResultBuilder(context)
             .setExitCode(exitCode)
-            .setStatus(exitCode == 0 ? Status.SUCCESS : Status.NON_ZERO_EXIT)
+            .setStatus(
+                timedOut ? Status.TIMEOUT : (exitCode == 0 ? Status.SUCCESS : Status.NON_ZERO_EXIT))
             .setStartTime(startTime)
             .setWallTimeInMs((int) wallTime.toMillis())
             .setSpawnMetrics(spawnMetrics.setTotalTime(wallTime).build());
@@ -318,7 +323,10 @@ final class WorkerSpawnRunner implements SpawnRunner {
               .setMessage("worker spawn failed for " + spawn.getMnemonic())
               .setSpawn(
                   FailureDetails.Spawn.newBuilder()
-                      .setCode(FailureDetails.Spawn.Code.NON_ZERO_EXIT)
+                      .setCode(
+                          timedOut
+                              ? FailureDetails.Spawn.Code.TIMEOUT
+                              : FailureDetails.Spawn.Code.NON_ZERO_EXIT)
                       .setSpawnExitCode(exitCode))
               .build());
     }
@@ -492,6 +500,33 @@ final class WorkerSpawnRunner implements SpawnRunner {
       SpawnMetrics.Builder spawnMetrics,
       Map<String, String> testSpecificEnv)
       throws ExecException, IOException, InterruptedException {
+    return execInWorkerWithOutcome(
+            spawn,
+            key,
+            context,
+            inputFiles,
+            outputs,
+            flagFiles,
+            inputFileCache,
+            spawnMetrics,
+            testSpecificEnv)
+        .response();
+  }
+
+  private record RequestOutcome(WorkResponse response, boolean timedOut) {}
+
+  @SuppressWarnings("Finally")
+  private RequestOutcome execInWorkerWithOutcome(
+      Spawn spawn,
+      WorkerKey key,
+      SpawnExecutionContext context,
+      SandboxInputs inputFiles,
+      SandboxOutputs outputs,
+      List<String> flagFiles,
+      InputMetadataProvider inputFileCache,
+      SpawnMetrics.Builder spawnMetrics,
+      Map<String, String> testSpecificEnv)
+      throws ExecException, IOException, InterruptedException {
     WorkerOwner workerOwner = null;
     WorkResponse response;
     WorkRequest request;
@@ -539,9 +574,16 @@ final class WorkerSpawnRunner implements SpawnRunner {
 
       // We acquired a worker and resources -- mark that as queuing time.
       spawnMetrics.setQueueTime(queueStopwatch.elapsed());
-      response =
+      RequestOutcome outcome =
           executeRequest(
               spawn, context, inputFiles, outputs, workerOwner, key, request, spawnMetrics, handle);
+      response = outcome.response();
+
+      if (outcome.timedOut()) {
+        context.lockOutputFiles(response.getExitCode(), response.getOutput(), null);
+        hasOutputFileLock = true;
+        return outcome;
+      }
 
       if (response == null) {
         throw createEmptyResponseException(workerOwner.getWorker().getLogFile());
@@ -626,14 +668,14 @@ final class WorkerSpawnRunner implements SpawnRunner {
         }
       }
     }
-    return response;
+    return new RequestOutcome(response, false);
   }
 
   /**
    * Executes worker request in worker, waits until the response is ready. Worker and resources
    * should be allocated before call.
    */
-  private WorkResponse executeRequest(
+  private RequestOutcome executeRequest(
       Spawn spawn,
       SpawnExecutionContext context,
       SandboxInputs inputFiles,
@@ -694,7 +736,35 @@ final class WorkerSpawnRunner implements SpawnRunner {
             .profile(
                 ProfilerTask.WORKER_WORKING,
                 String.format("Worker #%d working", worker.getWorkerId()))) {
-      response = worker.getResponse(request.getRequestId());
+      if (isPersistentTestSpawn(spawn) && !key.isMultiplex()) {
+        response = worker.getResponse(request.getRequestId(), context.getTimeout());
+      } else {
+        response = worker.getResponse(request.getRequestId());
+      }
+    } catch (TimeoutException e) {
+      if (worker.isSandboxed()
+          && workerOptions.getWorkerCancellation()
+          && Spawns.supportsWorkerCancellation(spawn)) {
+        finishWorkAsync(worker, request, true, handle);
+        workerOwner.setWorker(null);
+        resourceManager.releaseResourceOwnership();
+      } else {
+        try {
+          handle.invalidateAndClose(e);
+        } catch (IOException cleanupFailure) {
+          restoreInterrupt(cleanupFailure);
+        } finally {
+          workerOwner.setWorker(null);
+        }
+      }
+      spawnMetrics.setExecutionWallTime(executionStopwatch.elapsed());
+      return new RequestOutcome(
+          WorkResponse.newBuilder()
+              .setRequestId(request.getRequestId())
+              .setExitCode(SpawnResult.POSIX_TIMEOUT_EXIT_CODE)
+              .setOutput("Persistent test exceeded timeout " + context.getTimeout() + "\n")
+              .build(),
+          true);
     } catch (InterruptedException e) {
       if (worker.isSandboxed()) {
         // Sandboxed workers can safely finish their work async.
@@ -722,7 +792,7 @@ final class WorkerSpawnRunner implements SpawnRunner {
 
     spawnMetrics.setExecutionWallTime(executionStopwatch.elapsed());
 
-    return response;
+    return new RequestOutcome(response, false);
   }
 
   private void initializeMetrics(WorkerKey workerKey, Worker worker) {

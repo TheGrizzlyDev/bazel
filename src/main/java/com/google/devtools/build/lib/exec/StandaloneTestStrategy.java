@@ -132,6 +132,11 @@ public class StandaloneTestStrategy extends TestStrategy {
     if (action.usesPersistentTestRunner()) {
       PersistentTestInfo persistentTestInfo = action.getPersistentTestInfo();
       if (persistentTestInfo != null) {
+        // Test tags carry empty values, while the worker protocol capabilities require "1".
+        // Preserve opt-in cancellation until the runner/toolchain advertises it generally.
+        if (executionInfo.containsKey(ExecutionRequirements.SUPPORTS_WORKER_CANCELLATION)) {
+          executionInfo.put(ExecutionRequirements.SUPPORTS_WORKER_CANCELLATION, "1");
+        }
         // Enable worker mode (multiplex or single-worker)
         if (persistentTestInfo.getMultiplex()) {
           executionInfo.put(ExecutionRequirements.SUPPORTS_MULTIPLEX_WORKERS, "1");

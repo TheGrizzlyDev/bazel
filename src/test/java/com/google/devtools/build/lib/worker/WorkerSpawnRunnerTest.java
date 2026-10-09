@@ -46,6 +46,7 @@ import com.google.devtools.build.lib.actions.ResourceSet;
 import com.google.devtools.build.lib.actions.Spawn;
 import com.google.devtools.build.lib.actions.SpawnInputs;
 import com.google.devtools.build.lib.actions.SpawnMetrics;
+import com.google.devtools.build.lib.actions.SpawnResult;
 import com.google.devtools.build.lib.actions.UserExecException;
 import com.google.devtools.build.lib.actions.VirtualActionInput;
 import com.google.devtools.build.lib.clock.JavaClock;
@@ -71,6 +72,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -141,6 +144,69 @@ public class WorkerSpawnRunnerTest {
     verify(resourceHandle).close();
     verify(resourceHandle, times(0)).invalidateAndClose(any());
     verify(context).lockOutputFiles(eq(0), eq("out"), ArgumentMatchers.isNull());
+  }
+
+  @Test
+  public void testPersistentTestTimeout_invalidatesUnsandboxedWorker() throws Exception {
+    assertPersistentTestTimeout(false);
+  }
+
+  @Test
+  public void testPersistentTestTimeout_cancelsSandboxedWorkerAndReturnsItToPool()
+      throws Exception {
+    assertPersistentTestTimeout(true);
+  }
+
+  private void assertPersistentTestTimeout(boolean sandboxed) throws Exception {
+    WorkerOptions workerOptions = Options.getDefaults(WorkerOptions.class);
+    workerOptions.setWorkerCancellation(true);
+    WorkerSpawnRunner runner = createWorkerSpawnRunner(workerOptions);
+    WorkerKey key = createWorkerKey(fs, "JvmTestRunner", false);
+    when(spawn.getMnemonic()).thenReturn("TestRunner");
+    when(spawn.getExecutionInfo())
+        .thenReturn(
+            ImmutableMap.of(
+                ExecutionRequirements.SUPPORTS_WORKERS, "1",
+                ExecutionRequirements.SUPPORTS_WORKER_CANCELLATION, "1"));
+    when(context.getTimeout()).thenReturn(Duration.ofSeconds(1));
+    when(worker.isSandboxed()).thenReturn(sandboxed);
+    TimeoutException timeout = new TimeoutException();
+    when(worker.getResponse(0, Duration.ofSeconds(1))).thenThrow(timeout);
+    Semaphore reaped = new Semaphore(0);
+    if (sandboxed) {
+      when(worker.getResponse(0))
+          .thenReturn(WorkResponse.newBuilder().setWasCancelled(true).build());
+      org.mockito.Mockito.doAnswer(
+              invocation -> {
+                reaped.release();
+                return null;
+              })
+          .when(resourceHandle)
+          .close();
+    }
+    WorkResponse response =
+        runner.execInWorker(
+            spawn,
+            key,
+            context,
+            new SandboxInputs(ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of()),
+            SandboxOutputs.create(ImmutableSet.of(), ImmutableSet.of()),
+            ImmutableList.of(),
+            inputFileCache,
+            spawnMetrics,
+            ImmutableMap.of());
+    assertThat(response.getExitCode()).isEqualTo(SpawnResult.POSIX_TIMEOUT_EXIT_CODE);
+    assertThat(response.getOutput()).contains("timeout");
+    verify(worker, never()).finishExecution(any(), any());
+    if (sandboxed) {
+      assertThat(reaped.tryAcquire(5, TimeUnit.SECONDS)).isTrue();
+      verify(worker).putRequest(WorkRequest.newBuilder().setCancel(true).setRequestId(0).build());
+      verify(resourceHandle, never()).invalidateAndClose(any());
+      verify(resourceManager).releaseResourceOwnership();
+    } else {
+      verify(resourceHandle).invalidateAndClose(timeout);
+      verify(resourceHandle, never()).close();
+    }
   }
 
   @Test
@@ -533,7 +599,8 @@ public class WorkerSpawnRunnerTest {
   public void testExpandArgument_testRequestPreservesArgumentsAfterSeparator() throws Exception {
     WorkRequest.Builder requestBuilder = WorkRequest.newBuilder();
     FileSystemUtils.writeIsoLatin1(
-        fs.getPath("/file"), "@options\n--\n@missing-file\n@@literal\nspace value\n'quote'\n\nlast");
+        fs.getPath("/file"),
+        "@options\n--\n@missing-file\n@@literal\nspace value\n'quote'\n\nlast");
     FileSystemUtils.writeIsoLatin1(fs.getPath("/options"), "--config=config.pb");
     SandboxInputs inputs =
         new SandboxInputs(
@@ -545,8 +612,14 @@ public class WorkerSpawnRunnerTest {
     WorkerSpawnRunner.expandArgument(inputs, "@file", requestBuilder, true);
     assertThat(requestBuilder.getArgumentsList())
         .containsExactly(
-            "--config=config.pb", "--", "@missing-file", "@@literal", "space value", "'quote'",
-            "", "last")
+            "--config=config.pb",
+            "--",
+            "@missing-file",
+            "@@literal",
+            "space value",
+            "'quote'",
+            "",
+            "last")
         .inOrder();
   }
 
