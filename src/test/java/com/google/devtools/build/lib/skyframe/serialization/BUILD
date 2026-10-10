@@ -17,6 +17,16 @@ filegroup(
 )
 
 java_test(
+    name = "AutoRegistryTest",
+    size = "small",
+    srcs = ["AutoRegistryTest.java"],
+    deps = [
+        "//src/main/java/com/google/devtools/build/lib/skyframe/serialization",
+        "//third_party/java/junit",
+    ],
+)
+
+java_test(
     name = "PackageLookupValueCodecTest",
     size = "small",
     srcs = ["PackageLookupValueCodecTest.java"],

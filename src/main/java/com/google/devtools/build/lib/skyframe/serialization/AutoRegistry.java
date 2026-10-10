@@ -15,13 +15,13 @@
 package com.google.devtools.build.lib.skyframe.serialization;
 
 import com.google.common.base.Predicates;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Ordering;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.Comparator;
-import java.util.function.Supplier;
 
 /**
  * A lazy, automatically populated registry.
@@ -31,8 +31,28 @@ import java.util.function.Supplier;
  */
 public class AutoRegistry {
 
-  private static final Supplier<ObjectCodecRegistry> SUPPLIER =
-      Suppliers.memoize(AutoRegistry::create);
+  private record CachedRegistry(ImmutableList<String> classPath, ObjectCodecRegistry registry) {}
+
+  private static volatile CachedRegistry cachedRegistry;
+
+  private static ImmutableList<String> classPath() {
+    ImmutableList.Builder<String> entries = ImmutableList.builder();
+    boolean hasUrlClassLoader = false;
+    for (ClassLoader loader = AutoRegistry.class.getClassLoader();
+        loader != null;
+        loader = loader.getParent()) {
+      if (loader instanceof URLClassLoader urlLoader) {
+        hasUrlClassLoader = true;
+        for (URL url : urlLoader.getURLs()) {
+          entries.add(url.toExternalForm());
+        }
+      }
+    }
+    if (!hasUrlClassLoader) {
+      entries.add(System.getProperty("java.class.path", ""));
+    }
+    return entries.build();
+  }
 
   // Build codecs only for Bazel and Starlark classes.
   private static boolean packageFilter(String name) {
@@ -91,7 +111,22 @@ public class AutoRegistry {
           Ordering.natural());
 
   public static ObjectCodecRegistry get() {
-    return SUPPLIER.get();
+    ImmutableList<String> classPath = classPath();
+    CachedRegistry cached = cachedRegistry;
+    if (cached != null && cached.classPath().equals(classPath)) {
+      return cached.registry();
+    }
+    synchronized (AutoRegistry.class) {
+      cached = cachedRegistry;
+      if (cached == null || !cached.classPath().equals(classPath)) {
+        // Generated codecs are discovered from the defining loader's classpath. A retained test
+        // loader can expose a different classpath for each request while keeping loaded classes.
+        // Keep the registry warm for an unchanged classpath, but rescan when its inputs change.
+        cached = new CachedRegistry(classPath, create());
+        cachedRegistry = cached;
+      }
+      return cached.registry();
+    }
   }
 
   private static ObjectCodecRegistry create() {
