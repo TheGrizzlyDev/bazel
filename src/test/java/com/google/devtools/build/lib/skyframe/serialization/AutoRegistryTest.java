@@ -25,6 +25,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -70,7 +71,8 @@ public final class AutoRegistryTest {
     List<URL> initialClasspath = new ArrayList<>();
     for (String entry : System.getProperty("java.class.path").split(File.pathSeparator)) {
       URL url = Path.of(entry).toUri().toURL();
-      if (!url.toExternalForm().equals(testJar.toExternalForm())) {
+      // Bazel may advertise runfiles symlinks while CodeSource uses their resolved paths.
+      if (!Files.isSameFile(Path.of(url.toURI()), Path.of(testJar.toURI()))) {
         initialClasspath.add(url);
       }
     }
